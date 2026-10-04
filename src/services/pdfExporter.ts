@@ -3,6 +3,7 @@ import type { PDFFont } from 'pdf-lib';
 import * as fontkit from '@pdf-lib/fontkit';
 import { getFontDef, type StandardFontFamily } from './fontCatalog';
 import type { EditedTextOverlay, PageCropSetting, SignatureItem, HighlightArea, FreehandDrawing, ImageOverlay, ShapeOverlay, StampOverlay } from '../types/pdf';
+import { wrapLines } from '../utils/wrapText';
 
 export interface ExportPdfOptions {
   originalPdfBytes: Uint8Array;
@@ -119,12 +120,30 @@ export async function exportModifiedPdf(options: ExportPdfOptions): Promise<Uint
     if (overlay.text && overlay.text.trim().length > 0) {
       const font = await resolveOverlayFont(overlay.fontFamily, overlay.isBold);
       const color = hexToRgb(overlay.color || '#000000');
-      page.drawText(overlay.text, {
-        x: overlay.pdfX,
-        y: overlay.pdfY,
-        size: overlay.fontSize,
-        font: font,
-        color: color,
+      const size = overlay.fontSize > 0 ? overlay.fontSize : 12;
+      const lineHeight = size * 1.2;
+      // Wrap with the same algorithm (and matching metrics) the on-screen
+      // overlay uses, so exported line breaks match what the user saw.
+      const lines = wrapLines(
+        (t) => font.widthOfTextAtSize(t, size),
+        overlay.text,
+        Math.max(8, overlay.pdfWidth),
+      );
+      // Only as many lines as fit the box are drawn — mirrors the
+      // overflow-hidden clipping on screen.
+      const maxLines = Math.max(1, Math.floor(overlay.pdfHeight / lineHeight));
+      const top = overlay.pdfY + overlay.pdfHeight;
+      lines.slice(0, maxLines).forEach((line, i) => {
+        if (!line) return;
+        page.drawText(line, {
+          x: overlay.pdfX,
+          // First-line baseline sits ~0.92em below the box top (matches the
+          // CSS half-leading + ascent of line-height 1.2 on screen).
+          y: top - (0.92 + i * 1.2) * size,
+          size: size,
+          font: font,
+          color: color,
+        });
       });
     }
   }

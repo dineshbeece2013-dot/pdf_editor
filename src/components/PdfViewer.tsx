@@ -26,6 +26,8 @@ export interface PdfViewerProps {
   onTotalPagesLoaded: (total: number) => void;
   textOverlays: EditedTextOverlay[];
   onAddTextOverlay: (overlay: EditedTextOverlay) => void;
+  /** Live patch from the text-box resize handle (pushFirst snapshots for undo). */
+  onUpdateTextOverlay: (id: string, patch: Partial<EditedTextOverlay>, pushFirst?: boolean) => void;
   cropSettings: Record<number, PageCropSetting>;
   onApplyCrop: (crop: PageCropSetting) => void;
   onResetCrop: (pageIndex: number) => void;
@@ -65,6 +67,7 @@ export const PdfViewer: React.FC<PdfViewerProps> = ({
   onTotalPagesLoaded,
   textOverlays,
   onAddTextOverlay,
+  onUpdateTextOverlay,
   cropSettings,
   onApplyCrop,
   onResetCrop,
@@ -134,10 +137,25 @@ export const PdfViewer: React.FC<PdfViewerProps> = ({
   const [erasing, setErasing] = useState(false);
   const [erasedInStroke, setErasedInStroke] = useState<string[]>([]);
 
+  // Text-overlay selection + corner-resize drag (edit-text tool).
+  const [selectedOverlayId, setSelectedOverlayId] = useState<string | null>(null);
+  const [overlayResize, setOverlayResize] = useState<{
+    id: string;
+    pdfX: number;
+    top: number; // pdfY + pdfHeight — the box keeps its top edge while resizing
+    w: number;
+    h: number;
+    cx: number;
+    cy: number;
+    min: number;
+  } | null>(null);
+
   // Leaving a tool closes any open inline editor and aborts half-finished
   // drag operations so stale state can't leak across tools.
   useEffect(() => {
     setActiveEditingItem(null);
+    setSelectedOverlayId(null);
+    setOverlayResize(null);
     setIsDrawing(false);
     setCurrentPath([]);
     setHlStart(null);
@@ -157,6 +175,8 @@ export const PdfViewer: React.FC<PdfViewerProps> = ({
     setSelRect(null);
     setSelStart(null);
     setSelBox(null);
+    setSelectedOverlayId(null);
+    setOverlayResize(null);
     setShapeStart(null);
     setShapeBox(null);
   }, [currentPage, scale, cropSettings]);
@@ -172,7 +192,11 @@ export const PdfViewer: React.FC<PdfViewerProps> = ({
   // Paste ghost is cancelled with Escape (the marquee is cancelled by clicks).
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') setPasteGhost(null);
+      if (e.key === 'Escape') {
+        setPasteGhost(null);
+        setSelectedOverlayId(null);
+        setOverlayResize(null);
+      }
     };
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
@@ -328,11 +352,38 @@ export const PdfViewer: React.FC<PdfViewerProps> = ({
   const offX = pageSize.offX;
   const offY = pageSize.offY;
 
+  // Text-box corner resize: window listeners keep the drag alive even when
+  // the cursor leaves the page box. The box keeps its top-left corner, so
+  // pdfY (bottom edge) is recomputed from the fixed top edge.
+  useEffect(() => {
+    if (!overlayResize) return;
+    const onMove = (e: MouseEvent) => {
+      const dx = (e.clientX - overlayResize.cx) * scaleX;
+      const dy = (e.clientY - overlayResize.cy) * scaleY;
+      const maxW = Math.max(24, pageSize.pdfWidth - overlayResize.pdfX);
+      const maxH = Math.max(overlayResize.min, overlayResize.top); // keep pdfY >= 0
+      const w = Math.min(maxW, Math.max(24, overlayResize.w + dx));
+      const h = Math.min(maxH, Math.max(overlayResize.min, overlayResize.h + dy));
+      onUpdateTextOverlay(overlayResize.id, { pdfWidth: w, pdfHeight: h, pdfY: overlayResize.top - h });
+    };
+    const onUp = () => setOverlayResize(null);
+    window.addEventListener('mousemove', onMove);
+    window.addEventListener('mouseup', onUp);
+    return () => {
+      window.removeEventListener('mousemove', onMove);
+      window.removeEventListener('mouseup', onUp);
+    };
+  }, [overlayResize, scaleX, scaleY, pageSize.pdfWidth, onUpdateTextOverlay]);
+
   const handleMouseDown = (e: React.MouseEvent<HTMLDivElement>) => {
     if (!pageSize.width) return;
     const rect = e.currentTarget.getBoundingClientRect();
     const x = e.clientX - rect.left;
     const y = e.clientY - rect.top;
+
+    // Clicking empty page space deselects the text box (the box's own click
+    // handler re-selects it afterwards).
+    if (currentTool === 'edit-text') setSelectedOverlayId(null);
 
     // Paste ghost takes priority: a click stamps the copied region.
     if (pasteGhost) {
@@ -849,29 +900,77 @@ export const PdfViewer: React.FC<PdfViewerProps> = ({
         ))}
 
         {pageOverlays.map((overlay) => {
-          const boxStyle = overlay.coverRect
-            ? pageTransform(overlay.coverRect.pdfX, overlay.coverRect.pdfY, overlay.coverRect.pdfWidth, overlay.coverRect.pdfHeight)
-            : pageTransform(overlay.pdfX, overlay.pdfY, overlay.pdfWidth, overlay.pdfHeight);
-          const bg = overlay.coverRect ? overlay.coverRect.color || '#ffffff' : 'transparent';
+          const box = pageTransform(overlay.pdfX, overlay.pdfY, overlay.pdfWidth, overlay.pdfHeight);
+          const selected = selectedOverlayId === overlay.id;
+          const interactive = currentTool === 'edit-text';
           return (
-            <div
-              key={overlay.id}
-              className="absolute z-10 flex items-center pointer-events-none overflow-hidden"
-              style={{ ...boxStyle, backgroundColor: bg }}
-            >
-              <span
-                style={{
-                  fontFamily: mapPdfFontToCss(overlay.fontFamily),
-                  fontSize: `${overlay.fontSize * sX}px`,
-                  color: overlay.color,
-                  fontWeight: overlay.isBold ? 700 : 400,
-                  lineHeight: 1,
-                  whiteSpace: 'nowrap',
+            <React.Fragment key={overlay.id}>
+              {/* White patch masking the original text beneath an edit. */}
+              {overlay.coverRect && (
+                <div
+                  className="absolute z-10 pointer-events-none"
+                  style={{
+                    ...pageTransform(
+                      overlay.coverRect.pdfX,
+                      overlay.coverRect.pdfY,
+                      overlay.coverRect.pdfWidth,
+                      overlay.coverRect.pdfHeight,
+                    ),
+                    backgroundColor: overlay.coverRect.color || '#ffffff',
+                  }}
+                />
+              )}
+              <div
+                className={`absolute z-20 flex items-start rounded-sm ${
+                  interactive ? 'cursor-pointer' : 'pointer-events-none'
+                } ${selected ? 'ring-2 ring-emerald-500' : ''}`}
+                style={box}
+                title={interactive ? 'Click to select · drag the corner to resize' : undefined}
+                onClick={(e) => {
+                  if (!interactive) return;
+                  e.stopPropagation();
+                  setSelectedOverlayId(overlay.id);
                 }}
               >
-                {overlay.text}
-              </span>
-            </div>
+                <div className="w-full h-full overflow-hidden" style={{ lineHeight: 1.2 }}>
+                  <span
+                    style={{
+                      fontFamily: mapPdfFontToCss(overlay.fontFamily),
+                      fontSize: `${overlay.fontSize * sX}px`,
+                      color: overlay.color,
+                      fontWeight: overlay.isBold ? 700 : 400,
+                      lineHeight: 1.2,
+                      whiteSpace: 'pre-wrap',
+                      wordBreak: 'break-word',
+                    }}
+                  >
+                    {overlay.text}
+                  </span>
+                </div>
+                {selected && (
+                  <div
+                    className="absolute -right-1.5 -bottom-1.5 w-3 h-3 bg-emerald-500 hover:bg-emerald-600 border-2 border-white rounded-sm shadow cursor-nwse-resize z-30"
+                    title="Drag to resize the text box"
+                    onMouseDown={(e) => {
+                      e.preventDefault();
+                      e.stopPropagation();
+                      setSelectedOverlayId(overlay.id);
+                      setOverlayResize({
+                        id: overlay.id,
+                        pdfX: overlay.pdfX,
+                        top: overlay.pdfY + overlay.pdfHeight,
+                        w: overlay.pdfWidth,
+                        h: overlay.pdfHeight,
+                        cx: e.clientX,
+                        cy: e.clientY,
+                        min: Math.max(8, overlay.fontSize),
+                      });
+                      onUpdateTextOverlay(overlay.id, {}, true);
+                    }}
+                  />
+                )}
+              </div>
+            </React.Fragment>
           );
         })}
 
@@ -902,6 +1001,7 @@ export const PdfViewer: React.FC<PdfViewerProps> = ({
             key={activeEditingItem.id}
             item={activeEditingItem}
             pageIndex={currentPage}
+            pageWidthPt={pageSize.pdfWidth}
             isNew={activeEditingItem.id.startsWith('new-text-')}
             defaults={textDefaultsRef.current}
             onSave={(overlay) => {

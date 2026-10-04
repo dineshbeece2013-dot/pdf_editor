@@ -180,6 +180,17 @@ export function EditorApp() {
     setTextOverlays((prev) => [...prev, overlay]);
   };
 
+  // Live updates from the text-box corner-resize handle. History is pushed
+  // once at drag start (pushFirst) so a whole resize undoes as a single step.
+  const handleUpdateTextOverlay = (
+    id: string,
+    patch: Partial<EditedTextOverlay>,
+    pushFirst?: boolean,
+  ) => {
+    if (pushFirst) pushHistory();
+    setTextOverlays((prev) => prev.map((o) => (o.id === id ? { ...o, ...patch } : o)));
+  };
+
   const handleApplyCrop = (crop: PageCropSetting) => {
     pushHistory();
     setCropSettings((prev) => ({
@@ -380,6 +391,7 @@ export function EditorApp() {
           onTotalPagesLoaded={setTotalPages}
           textOverlays={textOverlays}
           onAddTextOverlay={handleAddTextOverlay}
+          onUpdateTextOverlay={handleUpdateTextOverlay}
           cropSettings={cropSettings}
           onApplyCrop={handleApplyCrop}
           onResetCrop={handleResetCrop}

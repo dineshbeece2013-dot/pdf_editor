@@ -1,6 +1,7 @@
-import React, { useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import type { DetectedTextItem, EditedTextOverlay } from '../types/pdf';
 import { cssFontFamily, detectFontId, FONT_GROUPS, isValidFontId } from '../services/fontCatalog';
+import { wrapLines } from '../utils/wrapText';
 import { Check, X, Sparkles } from 'lucide-react';
 
 interface TextEditInlineProps {
@@ -12,6 +13,8 @@ interface TextEditInlineProps {
   isNew?: boolean;
   /** Last-used formatting, applied as defaults when creating new text. */
   defaults?: { fontFamily?: string; fontSize?: number };
+  /** Page width in PDF points — the box auto-fits up to the page edge. */
+  pageWidthPt?: number;
 }
 
 export const TextEditInline: React.FC<TextEditInlineProps> = ({
@@ -21,8 +24,19 @@ export const TextEditInline: React.FC<TextEditInlineProps> = ({
   onCancel,
   isNew,
   defaults,
+  pageWidthPt,
 }) => {
   const [text, setText] = useState(item.str);
+  const textareaRef = useRef<HTMLTextAreaElement | null>(null);
+
+  // The textarea grows with its content so large text stays fully visible.
+  useEffect(() => {
+    const ta = textareaRef.current;
+    if (!ta) return;
+    ta.style.height = 'auto';
+    ta.style.height = `${Math.max(64, ta.scrollHeight)}px`;
+  }, [text]);
+
   const [fontSize, setFontSize] = useState(() =>
     isNew && defaults?.fontSize ? defaults.fontSize : Math.round(item.fontSize)
   );
@@ -42,15 +56,53 @@ export const TextEditInline: React.FC<TextEditInlineProps> = ({
       onCancel();
       return;
     }
+
+    // Sanitize the size (typed input can be empty or out of range).
+    const size = Number.isFinite(fontSize) && fontSize > 0 ? Math.min(400, fontSize) : 12;
+
+    // Auto-fit: wrap the text with real font metrics and size the box to its
+    // content, so large / multi-line text is fully visible. The box keeps its
+    // top edge (pdfY + pdfHeight is the anchor) and can be resized afterwards
+    // by dragging the corner handle in the viewer.
+    const pxPerPt = item.width > 0 && item.pdfWidth > 0 ? item.width / item.pdfWidth : 1;
+    const fontSizePx = Math.max(4, size * pxPerPt);
+    const availPt = Math.max(40, (pageWidthPt ?? item.pdfX + item.pdfWidth) - item.pdfX - 6);
+    const availPx = availPt * pxPerPt;
+    let maxLinePx = 0;
+    let lineCount = 1;
+    const ctx = document.createElement('canvas').getContext('2d');
+    if (ctx) {
+      ctx.font = `${isBold ? '700 ' : ''}${fontSizePx}px ${cssFontFamily(fontFamily)}`;
+      const lines = wrapLines((t) => ctx.measureText(t).width, text, availPx);
+      lineCount = lines.length;
+      for (const ln of lines) maxLinePx = Math.max(maxLinePx, ctx.measureText(ln).width);
+    } else {
+      // No canvas: rough fallback so the box still grows with the text.
+      const paras = text.split('\n');
+      lineCount = Math.max(1, paras.length);
+      let longest = 0;
+      for (const p of paras) longest = Math.max(longest, p.length);
+      maxLinePx = longest * fontSizePx * 0.6;
+    }
+
+    // 0.6em of slack: canvas metrics can run a hair narrower than the
+    // browser's final line layout (kerning / trailing spaces), and even a
+    // couple of clipped pixels are visible — the margin keeps text inside.
+    const slackPx = fontSizePx * 0.6;
+    const lineHeightPt = size * 1.2;
+    const boxWidth = Math.min(availPt, Math.max(24, (maxLinePx + slackPx) / pxPerPt));
+    const boxHeight = Math.max(lineHeightPt, lineCount * lineHeightPt);
+    const topPt = item.pdfY + item.pdfHeight;
+
     const overlay: EditedTextOverlay = {
       id: 'overlay-' + Date.now() + '-' + Math.random().toString(36).substring(2, 6),
       pageIndex,
       pdfX: item.pdfX,
-      pdfY: item.pdfY,
-      pdfWidth: item.pdfWidth,
-      pdfHeight: item.pdfHeight,
+      pdfY: topPt - boxHeight,
+      pdfWidth: boxWidth,
+      pdfHeight: boxHeight,
       text: text,
-      fontSize: fontSize,
+      fontSize: size,
       fontFamily: fontFamily,
       color: textColor,
       isBold: isBold,
@@ -139,17 +191,24 @@ export const TextEditInline: React.FC<TextEditInlineProps> = ({
         />
       </div>
 
-      <input
-        type="text"
+      <textarea
+        ref={textareaRef}
         value={text}
         autoFocus
-        placeholder={isNew ? 'Type your text…' : ''}
+        rows={3}
+        placeholder={isNew ? 'Type your text… (multi-line is fine)' : ''}
         onChange={(e) => setText(e.target.value)}
         onKeyDown={(e) => {
-          if (e.key === 'Enter') handleSave();
-          if (e.key === 'Escape') onCancel();
+          if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) {
+            e.preventDefault();
+            handleSave();
+          }
+          if (e.key === 'Escape') {
+            e.preventDefault();
+            onCancel();
+          }
         }}
-        className="w-full px-2 py-1 text-sm border border-neutral-300 rounded focus:border-emerald-500 focus:outline-none text-neutral-800"
+        className="w-full min-h-16 px-2 py-1 text-sm border border-neutral-300 rounded focus:border-emerald-500 focus:outline-none text-neutral-800 resize-y"
         style={{
           fontFamily: cssFontFamily(fontFamily),
           fontWeight: isBold ? 700 : 400,
@@ -157,7 +216,10 @@ export const TextEditInline: React.FC<TextEditInlineProps> = ({
         }}
       />
 
-      <div className="flex items-center justify-end gap-1.5 mt-2">
+      <div className="flex items-center gap-1.5 mt-2">
+        <span className="text-[10px] text-neutral-400 select-none mr-auto">
+          Ctrl+Enter saves · Esc cancels
+        </span>
         <button
           onClick={onCancel}
           className="px-2 py-1 text-xs text-neutral-500 hover:text-neutral-700"
