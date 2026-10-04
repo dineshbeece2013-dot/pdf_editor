@@ -133,6 +133,53 @@ verification is idempotent so a retry cannot double-apply.
 `toPublicGatewayConfig` is the only shape that leaves the server, and it has no
 field for the secret. The admin UI shows a "a secret is set" flag instead.
 
+## TLS and the reverse proxy
+
+The origin speaks HTTPS with a Let's Encrypt certificate that renews
+automatically (`certbot-renew.timer`, verified with `certbot renew --dry-run`).
+`deploy/nginx.conf` plus `deploy/pdfpro-locations.conf` set this up; both are
+shipped by `deploy.ps1`, so a deploy cannot silently drop the TLS config.
+
+### If Cloudflare sits in front (recommended settings)
+
+| Setting | Value | Why |
+|---|---|---|
+| SSL/TLS → Overview | **Full (strict)** | Makes Cloudflare connect to the origin over HTTPS. |
+| SSL/TLS → Edge Certificates | Always Use HTTPS | Offloads the redirect to the edge. |
+
+**"Full (strict)" is not cosmetic.** With Cloudflare on *Flexible* SSL it
+terminates TLS for the browser but reaches the origin over plain HTTP. The
+origin then sees `X-Forwarded-Proto: http`, believes the visit was insecure,
+and express-session refuses to issue a `Secure` cookie — so sign-in appears to
+do nothing. That exact failure is why `nginx.conf` maps the visitor's real
+scheme through:
+
+```nginx
+map $http_x_forwarded_proto $pdfpro_forwarded_proto {
+    default $http_x_forwarded_proto;   # trust the proxy's scheme
+    ''      $scheme;                  # no proxy: use our own
+}
+```
+
+and forwards `$pdfpro_forwarded_proto` to the API. The API listens on
+`127.0.0.1` only, so this header cannot be spoofed from outside. Still prefer
+Full (strict) — it removes the extra plaintext hop entirely.
+
+Two further notes:
+
+- **HSTS is repeated inside `location` blocks.** nginx's `add_header` in a
+  location *replaces* the inherited set rather than adding to it, so
+  `Strict-Transport-Security` has to appear in each block that sets its own
+  header.
+- **`add_header` with `always`** is what keeps the header on error responses.
+
+### Cookie flags over plain HTTP
+
+`COOKIE_SECURE` defaults to `true` in production. Browsers silently discard
+`Secure` cookies on `http://`, which presents as "login doesn't stick" — so
+only set it to `false` when TLS genuinely is not in front, and expect the
+cookie to travel in the clear until it is.
+
 ## Deployment
 
 Build, then run under systemd with a real `.env`:

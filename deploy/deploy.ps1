@@ -26,9 +26,10 @@ Assert-Ok 'tar'
 Write-Host '==> 3/4 uploading'
 scp -i $KeyPath $tar "${Server}:/tmp/dist.tar.gz"; Assert-Ok 'scp dist'
 scp -i $KeyPath (Join-Path $PSScriptRoot 'nginx.conf') "${Server}:/tmp/nginx.conf"; Assert-Ok 'scp nginx.conf'
+scp -i $KeyPath (Join-Path $PSScriptRoot 'pdfpro-locations.conf') "${Server}:/tmp/pdfpro-locations.conf"; Assert-Ok 'scp locations'
 
 Write-Host '==> 4/4 installing + restarting nginx'
-ssh -i $KeyPath $Server "sudo cp /tmp/nginx.conf /etc/nginx/nginx.conf && sudo nginx -t && sudo find $WebRoot -mindepth 1 -delete && sudo tar -xzf /tmp/dist.tar.gz -C $WebRoot --strip-components=1 && sudo systemctl restart nginx && rm -f /tmp/dist.tar.gz /tmp/nginx.conf && curl -s -o /dev/null -w 'deployed: %{http_code}\n' http://127.0.0.1/"
+ssh -i $KeyPath $Server "sudo cp /tmp/pdfpro-locations.conf /etc/nginx/pdfpro-locations.conf && sudo cp /tmp/nginx.conf /etc/nginx/nginx.conf && sudo nginx -t && sudo find $WebRoot -mindepth 1 -delete && sudo tar -xzf /tmp/dist.tar.gz -C $WebRoot --strip-components=1 && sudo systemctl restart nginx && rm -f /tmp/dist.tar.gz /tmp/nginx.conf /tmp/pdfpro-locations.conf && curl -s -o /dev/null -w 'deployed: %{http_code}\n' http://127.0.0.1/"
 Assert-Ok 'ssh deploy'
 
 Remove-Item $tar
