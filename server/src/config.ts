@@ -24,6 +24,16 @@ export interface AppConfig {
   sessionSecret: string;
   razorpayEncryptionKey: string;
   sessionTtlMs: number;
+  /**
+   * Sets the `Secure` flag on the session cookie.
+   *
+   * Defaults to true in production. It MUST only be turned off when the app is
+   * genuinely served over plain HTTP — a Secure cookie is silently dropped by
+   * the browser over http://, which looks exactly like "login doesn't stick".
+   * Note that turning it off also means the cookie travels in the clear, so
+   * put the site behind TLS before real users or real payments.
+   */
+  cookieSecure: boolean;
   admin: { email: string; password: string; name: string };
   razorpay: RazorpayEnv;
   /**
@@ -109,6 +119,7 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
     sessionSecret,
     razorpayEncryptionKey,
     sessionTtlMs: readInt(env, 'SESSION_TTL_DAYS', 7) * 24 * 60 * 60 * 1000,
+    cookieSecure: isProd ? readBool(env, 'COOKIE_SECURE', true) : false,
     admin: {
       email: readString(env, 'ADMIN_EMAIL', 'admin@pdfpro.com').toLowerCase(),
       password: readString(env, 'ADMIN_PASSWORD'),

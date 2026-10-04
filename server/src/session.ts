@@ -35,7 +35,7 @@ export function createSessionMiddleware(config: AppConfig, pool: Pool) {
     cookie: {
       httpOnly: true,
       sameSite: 'lax',
-      secure: config.isProd,
+      secure: config.cookieSecure,
       maxAge: config.sessionTtlMs,
       path: '/',
     },
