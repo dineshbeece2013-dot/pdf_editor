@@ -8,16 +8,27 @@ APP_DIR=/opt/pdfpro
 TARBALL=/tmp/pdfpro-server.tar.gz
 SERVICE=pdfpro-api
 
-echo '==> 1/5 unpack'
+echo '==> 1/5 preserve env + unpack'
 sudo mkdir -p "$APP_DIR"
+
+# The .env holds live secrets and is deliberately not in the tarball, so it has
+# to survive the wipe below. Back it up, then put it straight back.
+HAD_ENV=0
+if [ -f "$APP_DIR/server/.env" ]; then
+    sudo cp "$APP_DIR/server/.env" /tmp/pdfpro-env.backup
+    sudo chmod 600 /tmp/pdfpro-env.backup
+    HAD_ENV=1
+fi
+
 sudo rm -rf "$APP_DIR/server"
 sudo tar -xzf "$TARBALL" -C "$APP_DIR"
 
-echo '==> 2/5 env (created once, then left alone)'
-if [ ! -f "$APP_DIR/server/.env" ]; then
-  echo '    no .env found — copying the example. EDIT IT, then re-run.'
-  sudo cp "$APP_DIR/server/.env.example" "$APP_DIR/server/.env"
-  sudo chmod 600 "$APP_DIR/server/.env"
+if [ "$HAD_ENV" = "1" ]; then
+    sudo mv /tmp/pdfpro-env.backup "$APP_DIR/server/.env"
+    echo '    restored existing .env'
+else
+    echo '    no .env found — copying the example. EDIT IT, then re-run.'
+    sudo cp "$APP_DIR/server/.env.example" "$APP_DIR/server/.env"
 fi
 
 id -u pdfpro-api >/dev/null 2>&1 || \

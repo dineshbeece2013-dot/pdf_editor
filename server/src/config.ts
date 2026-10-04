@@ -17,6 +17,12 @@ export interface AppConfig {
   env: NodeEnv;
   isProd: boolean;
   port: number;
+  /**
+   * Interface the API binds to. Defaults to loopback so the API is only
+   * reachable through the nginx reverse proxy — never directly from the
+   * internet. Only widen this if something else on the host must call it.
+   */
+  host: string;
   appOrigin: string;
   databaseUrl: string;
   /** Enables TLS to PostgreSQL — required by most managed providers. */
@@ -113,6 +119,7 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
     env: nodeEnv,
     isProd,
     port: readInt(env, 'PORT', 4000),
+    host: readString(env, 'HOST', '127.0.0.1'),
     appOrigin: readString(env, 'APP_ORIGIN', 'http://localhost:5173'),
     databaseUrl,
     databaseSsl: readBool(env, 'DATABASE_SSL', false),

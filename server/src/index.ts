@@ -16,8 +16,8 @@ async function main(): Promise<void> {
 
   const app = createApp({ config, db, pool });
 
-  const server = app.listen(config.port, () => {
-    console.log(`[api] listening on http://127.0.0.1:${config.port} (${config.env})`);
+  const server = app.listen(config.port, config.host, () => {
+    console.log(`[api] listening on http://${config.host}:${config.port} (${config.env})`);
   });
 
   const shutdown = (signal: string) => {
