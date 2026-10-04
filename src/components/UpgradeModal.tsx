@@ -4,7 +4,21 @@ import { Modal } from './Modal';
 import { useAuth } from '../context/AuthContext';
 import { SUBSCRIPTION_PLANS, type PlanId } from '../services/subscription';
 import { gatewayApi, startRazorpayCheckout, subscriptionApi } from '../services/razorpay';
-import { messageFor } from '../services/api';
+import { ApiError, messageFor } from '../services/api';
+
+/** Turn a failed checkout into something the user can act on. */
+function checkoutError(err: unknown): string {
+  if (err instanceof ApiError && err.status === 401) {
+    return 'Your session has expired. Close this dialog, sign in again from the header, then retry.';
+  }
+  if (err instanceof ApiError && err.status === 503) {
+    return 'Payments are not configured on this server yet. An administrator needs to add Razorpay keys.';
+  }
+  if (err instanceof ApiError && err.status === 403) {
+    return 'This server does not allow that payment method.';
+  }
+  return messageFor(err);
+}
 
 export interface UpgradeModalProps {
   isOpen: boolean;
@@ -85,7 +99,7 @@ export const UpgradeModal: React.FC<UpgradeModalProps> = ({ isOpen, onClose, rea
       onSubscribed?.(selected);
     } catch (err) {
       setStatus('error');
-      setMessage(messageFor(err));
+      setMessage(checkoutError(err));
     }
   };
 
@@ -105,7 +119,7 @@ export const UpgradeModal: React.FC<UpgradeModalProps> = ({ isOpen, onClose, rea
       onSubscribed?.(selected);
     } catch (err) {
       setStatus('error');
-      setMessage(messageFor(err));
+      setMessage(checkoutError(err));
     }
   };
 

@@ -108,9 +108,29 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     [loadAccess],
   );
 
+  /**
+   * Confirm the browser actually kept the session cookie.
+   *
+   * `POST /auth/login` can return 200 with the user while the cookie is not
+   * stored — behind a misconfigured proxy, or with cookies blocked. The UI
+   * would then show "signed in" from the response body while every later
+   * request 401s, which surfaces much later as a confusing "Sign in required."
+   * halfway through checkout. One extra round trip turns that into an
+   * immediate, honest error.
+   */
+  const confirmSession = async (): Promise<void> => {
+    const me = await authApi.me();
+    if (me.user) return;
+    throw new Error(
+      'Sign-in did not complete: your browser did not keep the session cookie. ' +
+        'Check that cookies are enabled for this site and that you are on https://, then try again.',
+    );
+  };
+
   const login = useCallback(
     async (email: string, password: string) => {
       const res = await authApi.login(email, password);
+      await confirmSession();
       applyServerUser(res.user);
       return res.user;
     },
@@ -120,6 +140,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const register = useCallback(
     async (name: string, email: string, password: string) => {
       const res = await authApi.register(name, email, password);
+      await confirmSession();
       applyServerUser(res.user);
       return res.user;
     },
