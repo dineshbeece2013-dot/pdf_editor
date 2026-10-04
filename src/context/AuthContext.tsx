@@ -1,56 +1,47 @@
-import React, { createContext, useContext, useMemo, useState } from 'react';
+import React, { createContext, useCallback, useContext, useEffect, useMemo, useState } from 'react';
 import {
+  authApi,
+  meApi,
+  purgeLegacyLocalData,
   type AppUser,
-  clearSession,
-  createUser,
-  findUserByEmail,
-  getSessionUserId,
-  listUsers,
-  seedUsers,
-  setSessionUserId,
-  updateUserData,
+  type EditAccess,
 } from '../services/localAuth';
-import {
-  canUserEdit,
-  recordUserEdit,
-  getSubscriptionStatus,
-  applySubscription,
-  cancelSubscription,
-  type PlanId,
-} from '../services/subscription';
+import { subscriptionApi } from '../services/razorpay';
+import { getSubscriptionStatus } from '../services/subscription';
 
-// Idempotent — seeds the demo admin/user accounts on first load.
-seedUsers();
+interface SubscriptionStatus {
+  isPro: boolean;
+  planName: string | null;
+  expiresAt: number | null;
+  daysRemaining: number | null;
+  canEdit: boolean;
+  editLimitReason?: string;
+}
 
-type SubscriptionStatus = ReturnType<typeof getSubscriptionStatus>;
-type EditCheck = ReturnType<typeof canUserEdit>;
-
-// Someone who is not signed in is a guest. Guests keep the full editing access
-// the app has always had, so the editor behaves identically whether or not you
-// hold an account — the daily limit and the upgrade prompt only ever apply to
-// signed-in free accounts.
-const GUEST_SUBSCRIPTION_STATUS: SubscriptionStatus = {
+/** A visitor who is not signed in keeps the full editing access they always had. */
+const GUEST_STATUS: SubscriptionStatus = {
   isPro: false,
   planName: null,
   expiresAt: null,
   daysRemaining: null,
   canEdit: true,
-  editLimitReason: undefined,
 };
-
-const GUEST_EDIT_CHECK: EditCheck = { canEdit: true };
 
 interface AuthContextValue {
   user: AppUser | null;
-  subscriptionStatus: ReturnType<typeof getSubscriptionStatus>;
-  canEditResult: ReturnType<typeof canUserEdit>;
-  login: (email: string, password: string) => AppUser;
-  register: (name: string, email: string, password: string) => AppUser;
-  logout: () => void;
+  /** True until the initial "who am I?" request settles. */
+  loading: boolean;
+  passwordMinLength: number;
+  subscriptionStatus: SubscriptionStatus;
+  canEditResult: { canEdit: boolean; reason?: string };
+  login: (email: string, password: string) => Promise<AppUser>;
+  register: (name: string, email: string, password: string) => Promise<AppUser>;
+  logout: () => Promise<void>;
   recordEdit: () => void;
-  subscribe: (planId: PlanId) => AppUser;
-  cancelPro: () => AppUser;
-  adminUpdateUser: (id: string, patch: Partial<AppUser>) => AppUser | null;
+  /** Adopt a user record the server just returned (after a payment, say). */
+  applyServerUser: (user: AppUser | null) => void;
+  refreshEditAccess: () => Promise<void>;
+  cancelPro: () => Promise<AppUser | null>;
 }
 
 const AuthContext = createContext<AuthContextValue | null>(null);
@@ -62,111 +53,163 @@ export const useAuth = (): AuthContextValue => {
 };
 
 export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
-  // Nobody is signed in automatically: a first-time visitor starts as a guest.
-  // We only restore a session that was created by an explicit sign-in.
-  const [user, setUser] = useState<AppUser | null>(() => {
-    const id = getSessionUserId();
-    if (!id) return null;
-    return listUsers().find((u) => u.id === id) ?? null;
-  });
+  const [user, setUser] = useState<AppUser | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [access, setAccess] = useState<EditAccess | null>(null);
+  const [passwordMinLength, setPasswordMinLength] = useState(8);
 
-  const subscriptionStatus = useMemo(
-    () => (user ? getSubscriptionStatus(user) : GUEST_SUBSCRIPTION_STATUS),
-    [user]
+  const loadAccess = useCallback(async () => {
+    try {
+      const res = await meApi.editAccess();
+      setAccess(res.access);
+    } catch {
+      setAccess(null);
+    }
+  }, []);
+
+  /**
+   * The session lives in an httpOnly cookie, which JavaScript cannot read, so
+   * this GET is the only way the app learns who (if anyone) is signed in. It
+   * also clears out the data the old localStorage version left behind.
+   */
+  useEffect(() => {
+    let cancelled = false;
+
+    void (async () => {
+      purgeLegacyLocalData();
+      try {
+        const res = await authApi.me();
+        if (cancelled) return;
+        setUser(res.user);
+        setPasswordMinLength(res.passwordPolicy?.minLength ?? 8);
+      } catch {
+        if (!cancelled) setUser(null);
+      } finally {
+        if (!cancelled) setLoading(false);
+      }
+    })();
+
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  // Ask the server for the authoritative quota once we know there is a user.
+  useEffect(() => {
+    if (user) void loadAccess();
+  }, [user, loadAccess]);
+
+  const applyServerUser = useCallback(
+    (next: AppUser | null) => {
+      setUser(next);
+      if (next) void loadAccess();
+      else setAccess(null);
+    },
+    [loadAccess],
   );
 
-  const canEditResult = useMemo(
-    () => (user ? canUserEdit(user) : GUEST_EDIT_CHECK),
-    [user]
+  const login = useCallback(
+    async (email: string, password: string) => {
+      const res = await authApi.login(email, password);
+      applyServerUser(res.user);
+      return res.user;
+    },
+    [applyServerUser],
   );
 
-  const login = (email: string, password: string): AppUser => {
-    const found = findUserByEmail(email);
-    if (!found || found.password !== password) {
-      throw new Error('Invalid email or password.');
-    }
-    setSessionUserId(found.id);
-    setUser(found);
-    return found;
-  };
+  const register = useCallback(
+    async (name: string, email: string, password: string) => {
+      const res = await authApi.register(name, email, password);
+      applyServerUser(res.user);
+      return res.user;
+    },
+    [applyServerUser],
+  );
 
-  const register = (name: string, email: string, password: string): AppUser => {
-    const normalized = email.trim().toLowerCase();
-    if (!normalized) throw new Error('Email is required.');
-    if (findUserByEmail(normalized)) {
-      throw new Error('An account with this email already exists.');
-    }
-    const created = createUser({ name: name.trim(), email: normalized, password });
-    setSessionUserId(created.id);
-    setUser(created);
-    return created;
-  };
+  const logout = useCallback(async () => {
+    await authApi.logout();
+    applyServerUser(null);
+  }, [applyServerUser]);
 
-  const logout = (): void => {
-    clearSession();
-    setUser(null);
-  };
-
-  const recordEdit = (): void => {
+  /**
+   * Called the moment an edit starts. The counter is bumped optimistically so
+   * the editor never waits on a round trip; the server response then becomes
+   * the truth. If the server refuses the edit we re-read the real allowance so
+   * the upgrade prompt appears at the right moment.
+   */
+  const recordEdit = useCallback(() => {
     if (!user) return;
-    const updated = recordUserEdit(user);
-    updateUserData(user.id, () => ({
-      freeEditsUsedToday: updated.freeEditsUsedToday,
-      lastFreeEditDate: updated.lastFreeEditDate,
-      totalEdits: updated.totalEdits,
-    }));
-    setUser((prev) => (prev ? { ...prev, freeEditsUsedToday: updated.freeEditsUsedToday, lastFreeEditDate: updated.lastFreeEditDate, totalEdits: updated.totalEdits } : null));
-  };
 
-  const subscribe = (planId: PlanId): AppUser => {
-    if (!user) throw new Error('No user logged in.');
-    const updated = applySubscription(user, planId);
-    updateUserData(user.id, () => ({
-      plan: updated.plan,
-      subscriptionPlan: updated.subscriptionPlan,
-      subscriptionExpiresAt: updated.subscriptionExpiresAt,
-      freeEditsUsedToday: updated.freeEditsUsedToday,
-      lastFreeEditDate: updated.lastFreeEditDate,
-    }));
-    setUser((prev) => (prev ? { ...prev, plan: updated.plan, subscriptionPlan: updated.subscriptionPlan, subscriptionExpiresAt: updated.subscriptionExpiresAt, freeEditsUsedToday: updated.freeEditsUsedToday, lastFreeEditDate: updated.lastFreeEditDate } : null));
-    return updated;
-  };
+    setUser((prev) => (prev ? { ...prev, totalEdits: (prev.totalEdits ?? 0) + 1 } : prev));
 
-  const cancelPro = (): AppUser => {
-    if (!user) throw new Error('No user logged in.');
-    const updated = cancelSubscription(user);
-    updateUserData(user.id, () => ({
-      plan: updated.plan,
-      subscriptionPlan: updated.subscriptionPlan,
-      subscriptionExpiresAt: updated.subscriptionExpiresAt,
-    }));
-    setUser((prev) => (prev ? { ...prev, plan: updated.plan, subscriptionPlan: updated.subscriptionPlan, subscriptionExpiresAt: updated.subscriptionExpiresAt } : null));
-    return updated;
-  };
+    void meApi
+      .recordEdit()
+      .then((res) => {
+        setUser(res.user);
+        setAccess(res.access);
+      })
+      .catch(() => {
+        void loadAccess();
+      });
+  }, [user, loadAccess]);
 
-  const adminUpdateUser = (id: string, patch: Partial<AppUser>): AppUser | null => {
-    if (!user || user.role !== 'admin') return null;
-    const updated = updateUserData(id, () => patch);
-    if (updated && user.id === id) {
-      setUser(updated);
+  const cancelPro = useCallback(async () => {
+    const res = await subscriptionApi.cancel();
+    applyServerUser(res.user);
+    return res.user;
+  }, [applyServerUser]);
+
+  const subscriptionStatus = useMemo<SubscriptionStatus>(() => {
+    if (!user) return GUEST_STATUS;
+    if (access) {
+      return {
+        isPro: access.isPro,
+        planName: access.planName,
+        expiresAt: user.subscriptionExpiresAt ?? null,
+        daysRemaining: access.daysRemaining,
+        canEdit: access.canEdit,
+        editLimitReason: access.reason,
+      };
     }
-    return updated;
-  };
+    // Brief window before the server's verdict arrives.
+    return getSubscriptionStatus(user);
+  }, [user, access]);
+
+  const canEditResult = useMemo(() => {
+    if (!user) return { canEdit: true };
+    if (access) return { canEdit: access.canEdit, reason: access.reason };
+    return { canEdit: true };
+  }, [user, access]);
 
   const value = useMemo(
     () => ({
       user,
+      loading,
+      passwordMinLength,
       subscriptionStatus,
       canEditResult,
       login,
       register,
       logout,
       recordEdit,
-      subscribe,
+      applyServerUser,
+      refreshEditAccess: loadAccess,
       cancelPro,
-      adminUpdateUser,
     }),
-    [user, subscriptionStatus, canEditResult]
+    [
+      user,
+      loading,
+      passwordMinLength,
+      subscriptionStatus,
+      canEditResult,
+      login,
+      register,
+      logout,
+      recordEdit,
+      applyServerUser,
+      loadAccess,
+      cancelPro,
+    ],
   );
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;

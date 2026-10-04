@@ -10,21 +10,14 @@
  *   - only accounts whose role is 'admin' can open the Admin Dashboard.
  * Set it to false to hide accounts entirely and keep every visitor a guest.
  *
- * RAZORPAY: payment gateway configuration for subscription purchases.
- * These values are safe to expose on the client because the publishable
- * key (key_id) is designed to be public; the secret (key_secret) is only
- * ever used server-side and is provided here for the admin dashboard to
- * display and configure. In production, store the secret in an environment
- * variable / server-side configuration.
+ * GATEWAY KEYS: Razorpay credentials are no longer part of the frontend at
+ * all. The key secret lives encrypted in PostgreSQL and is only ever read by
+ * the backend; the browser gets a publishable key id from
+ * GET /api/razorpay/config. Never add a secret to this file — anything here
+ * ships to every visitor in the JavaScript bundle.
  */
 export const ACCOUNTS_ENABLED = true;
 
-export const RAZORPAY = {
-  keyId: 'rzp_test_1_placeholder_key_id',
-  keySecret: 'rzp_test_1_placeholder_key_secret',
-  currency: 'INR', // Razorpay typically uses INR
-} as const;
-
-/** Available subscription plans (prices in USD). */
+/** Available subscription plans (mirror of the server's catalogue, display only). */
 export const AVAILABLE_PLANS = ['pro-weekly', 'pro-monthly'] as const;
 export type AvailablePlan = (typeof AVAILABLE_PLANS)[number];

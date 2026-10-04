@@ -1,6 +1,13 @@
-// Local, browser-only auth store.
-// NOTE: demo implementation — data lives in localStorage and passwords are
-// stored as-is. Replace these functions with real API calls in production.
+import { api } from './api';
+
+/**
+ * Accounts API client.
+ *
+ * Replaces the old localStorage store. The shapes (`AppUser`, the admin patch
+ * fields) are unchanged so the editor and admin UI keep working — the one
+ * deliberate difference is that there is no `password` field any more. The
+ * server hashes with Argon2id and never returns the value in any form.
+ */
 
 export type SubscriptionPlan = 'free' | 'pro-weekly' | 'pro-monthly' | null;
 
@@ -8,7 +15,6 @@ export interface AppUser {
   id: string;
   name: string;
   email: string;
-  password: string;
   role: 'admin' | 'user';
   plan: 'free' | 'pro';
   createdAt: number;
@@ -22,124 +28,78 @@ export interface AppUser {
   totalEdits?: number;
 }
 
-const USERS_KEY = 'pdfpro.users';
-const SESSION_KEY = 'pdfpro.session';
+/** Fields an admin is allowed to change — enforced again on the server. */
+export interface AdminUserPatch {
+  name?: string;
+  role?: 'admin' | 'user';
+  plan?: 'free' | 'pro';
+  subscriptionPlan?: SubscriptionPlan;
+  subscriptionExpiresAt?: number | null;
+  freeEditsUsedToday?: number;
+  lastFreeEditDate?: string | null;
+  totalEdits?: number;
+}
 
-const read = <T,>(key: string, fallback: T): T => {
-  try {
-    const raw = localStorage.getItem(key);
-    return raw ? (JSON.parse(raw) as T) : fallback;
-  } catch {
-    return fallback;
-  }
+/** The server's verdict on whether this account may record an edit. */
+export interface EditAccess {
+  canEdit: boolean;
+  reason?: string;
+  remainingFreeEdits: number;
+  isPro: boolean;
+  planName: string;
+  daysRemaining: number | null;
+}
+
+export interface MeResponse {
+  user: AppUser | null;
+  passwordPolicy: { minLength: number };
+}
+
+/** Everything the signed-in user needs. */
+export const authApi = {
+  me: () => api.get<MeResponse>('/auth/me'),
+
+  login: (email: string, password: string) =>
+    api.post<{ user: AppUser }>('/auth/login', { email, password }),
+
+  register: (name: string, email: string, password: string) =>
+    api.post<{ user: AppUser }>('/auth/register', { name, email, password }),
+
+  logout: () => api.post<{ ok: true }>('/auth/logout'),
+
+  changePassword: (currentPassword: string, newPassword: string) =>
+    api.post<{ ok: true }>('/auth/password', { currentPassword, newPassword }),
 };
 
-const write = (key: string, value: unknown): void => {
-  try {
-    localStorage.setItem(key, JSON.stringify(value));
-  } catch {
-    /* storage unavailable/full — ignore in demo */
-  }
+/** The signed-in user's own quota and counter. */
+export const meApi = {
+  editAccess: () => api.get<{ access: EditAccess }>('/me/edit-access'),
+  recordEdit: () => api.post<{ user: AppUser; access: EditAccess }>('/me/edits'),
 };
 
-const uid = (prefix: string): string =>
-  prefix + '-' + Date.now() + '-' + Math.random().toString(36).slice(2, 7);
+/** Administrator operations. Every call here is authorised server-side. */
+export const adminApi = {
+  listUsers: () => api.get<{ users: AppUser[] }>('/admin/users'),
+  updateUser: (id: string, patch: AdminUserPatch) =>
+    api.patch<{ user: AppUser }>(`/admin/users/${id}`, patch),
+  deleteUser: (id: string) => api.delete<{ ok: true }>(`/admin/users/${id}`),
+  resetEdits: (id: string) => api.post<{ user: AppUser }>(`/admin/users/${id}/reset-edits`),
+  grantSubscription: (id: string, planId: string) =>
+    api.post<{ user: AppUser }>(`/admin/users/${id}/grant`, { planId }),
+  cancelSubscription: (id: string) => api.post<{ user: AppUser }>(`/admin/users/${id}/cancel`),
+};
 
-/** Seed demo accounts on first run. Idempotent. */
-export function seedUsers(): void {
-  if (localStorage.getItem(USERS_KEY)) return;
-  const now = Date.now();
-  const seed: AppUser[] = [
-    { 
-      id: 'user-admin', 
-      name: 'Admin', 
-      email: 'admin@pdfpro.com', 
-      password: 'admin123', 
-      role: 'admin', 
-      plan: 'pro', 
-      createdAt: now,
-      subscriptionPlan: 'pro-monthly',
-      subscriptionExpiresAt: now + (30 * 24 * 60 * 60 * 1000), // 30 days from now
-      freeEditsUsedToday: 0,
-      lastFreeEditDate: null,
-      totalEdits: 0
-    },
-    { 
-      id: 'user-demo', 
-      name: 'Demo User', 
-      email: 'user@pdfpro.com', 
-      password: 'user123', 
-      role: 'user', 
-      plan: 'free', 
-      createdAt: now,
-      subscriptionPlan: null,
-      subscriptionExpiresAt: null,
-      freeEditsUsedToday: 0,
-      lastFreeEditDate: null,
-      totalEdits: 0
-    },
-  ];
-  write(USERS_KEY, seed);
-}
-
-export function listUsers(): AppUser[] {
-  return read<AppUser[]>(USERS_KEY, []);
-}
-
-export function findUserByEmail(email: string): AppUser | null {
-  const e = email.trim().toLowerCase();
-  return listUsers().find((u) => u.email === e) ?? null;
-}
-
-export function createUser(input: {
-  name: string;
-  email: string;
-  password: string;
-  role?: AppUser['role'];
-  plan?: AppUser['plan'];
-}): AppUser {
-  const user: AppUser = {
-    id: uid('user'),
-    name: input.name,
-    email: input.email.trim().toLowerCase(),
-    password: input.password,
-    role: input.role ?? 'user',
-    plan: input.plan ?? 'free',
-    createdAt: Date.now(),
-  };
-  const users = listUsers();
-  users.push(user);
-  write(USERS_KEY, users);
-  return user;
-}
-
-export function getSessionUserId(): string | null {
-  return read<string | null>(SESSION_KEY, null);
-}
-
-export function setSessionUserId(id: string): void {
-  write(SESSION_KEY, id);
-}
-
-export function clearSession(): void {
+/**
+ * Drop any browser-held copy of the data the old localStorage version kept.
+ * Those keys held plaintext passwords and a payment ledger, so it is worth
+ * clearing them out of existing browsers on first load.
+ */
+export function purgeLegacyLocalData(): void {
   try {
-    localStorage.removeItem(SESSION_KEY);
+    for (const key of ['pdfpro.users', 'pdfpro.session', 'pdfpro.payments', 'pdfpro.razorpay']) {
+      localStorage.removeItem(key);
+    }
   } catch {
-    /* ignore */
+    /* storage unavailable — nothing to clean up */
   }
-}
-
-/** Load a user by ID and persist a writeable copy back to storage. */
-export function updateUserData(id: string, updater: (u: AppUser) => Partial<AppUser>): AppUser | null {
-  const users = listUsers();
-  const idx = users.findIndex((u) => u.id === id);
-  if (idx < 0) return null;
-  users[idx] = { ...users[idx], ...updater(users[idx]) };
-  write(USERS_KEY, users);
-  return users[idx];
-}
-
-/** Save the entire user list back to storage (used by the admin dashboard). */
-export function persistUsers(users: AppUser[]): void {
-  write(USERS_KEY, users);
 }

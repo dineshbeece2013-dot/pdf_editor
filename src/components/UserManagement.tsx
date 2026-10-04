@@ -1,32 +1,59 @@
-import React, { useCallback, useState } from 'react';
+import React, { useCallback, useEffect, useState } from 'react';
 import { RefreshCw, ShieldCheck, Trash2, UserMinus, UserPlus } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
-import { listUsers, persistUsers } from '../services/localAuth';
-import type { AppUser } from '../services/localAuth';
+import { adminApi, type AppUser } from '../services/localAuth';
+import { messageFor } from '../services/api';
 import { getSubscriptionStatus } from '../services/subscription';
 
-/** Admin user directory: promote/demote roles, reset free edits and delete accounts. */
+/**
+ * Admin user directory: promote/demote roles, reset free edits and delete
+ * accounts. Every action is a server call — the browser holds no copy of the
+ * user list it could tamper with, and the server re-checks the admin role.
+ */
 export const UserManagement: React.FC = () => {
-  const { user: currentUser, adminUpdateUser } = useAuth();
-  const [users, setUsers] = useState<AppUser[]>(() => listUsers());
+  const { user: currentUser } = useAuth();
+  const [users, setUsers] = useState<AppUser[]>([]);
+  const [error, setError] = useState('');
+  const [busy, setBusy] = useState(false);
 
-  const refresh = useCallback(() => setUsers(listUsers()), []);
+  const refresh = useCallback(async () => {
+    try {
+      const res = await adminApi.listUsers();
+      setUsers(res.users);
+    } catch (err) {
+      setError(messageFor(err));
+    }
+  }, []);
+
+  useEffect(() => {
+    void refresh();
+  }, [refresh]);
+
+  const run = async (fn: () => Promise<unknown>) => {
+    setBusy(true);
+    setError('');
+    try {
+      await fn();
+    } catch (err) {
+      setError(messageFor(err));
+    } finally {
+      setBusy(false);
+      await refresh();
+    }
+  };
 
   const handleRoleToggle = (target: AppUser) => {
     if (target.id === currentUser?.id) return; // never demote yourself
-    adminUpdateUser(target.id, { role: target.role === 'admin' ? 'user' : 'admin' });
-    refresh();
+    void run(() => adminApi.updateUser(target.id, { role: target.role === 'admin' ? 'user' : 'admin' }));
   };
 
   const handleDelete = (target: AppUser) => {
     if (target.id === currentUser?.id) return; // never delete yourself
-    persistUsers(listUsers().filter((u) => u.id !== target.id));
-    refresh();
+    void run(() => adminApi.deleteUser(target.id));
   };
 
   const handleResetEdits = (target: AppUser) => {
-    adminUpdateUser(target.id, { freeEditsUsedToday: 0, lastFreeEditDate: null });
-    refresh();
+    void run(() => adminApi.resetEdits(target.id));
   };
 
   return (
@@ -39,13 +66,18 @@ export const UserManagement: React.FC = () => {
           </p>
         </div>
         <button
-          onClick={refresh}
+          onClick={() => void refresh()}
           title="Refresh"
           className="p-2 rounded-lg border border-neutral-200 text-neutral-500 hover:text-emerald-600 hover:bg-neutral-50"
         >
-          <RefreshCw className="w-4 h-4" />
+          <RefreshCw className={busy ? 'w-4 h-4 animate-spin' : 'w-4 h-4'} />
         </button>
       </div>
+{error && (
+        <div className="px-3 py-2 rounded-lg bg-red-50 border border-red-200 text-red-700 text-xs">
+          {error}
+        </div>
+      )}
 
       <div className="overflow-x-auto bg-white border border-neutral-200 rounded-lg shadow-sm">
         <table className="min-w-full">

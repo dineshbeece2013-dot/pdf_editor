@@ -1,3 +1,31 @@
+# PDF Editor Pro
+
+A browser-based PDF editor with optional accounts and Pro subscriptions.
+
+| Layer | Stack |
+|---|---|
+| Frontend | React 19 + TypeScript + Vite + Tailwind + pdf.js |
+| Backend | Express 5 + PostgreSQL — see [server/README.md](server/README.md) |
+
+The frontend is a static site. Accounts, subscriptions, payments and admin
+permissions are enforced by the API in `server/` — passwords are hashed with
+Argon2id, the session is an httpOnly cookie, and payment signatures are
+verified server-side.
+
+## Running it locally
+
+```bash
+# database
+docker compose up -d
+
+# API  (http://127.0.0.1:4000)
+cd server && cp .env.example .env && npm install && npm run seed:admin && npm run dev
+
+# frontend (http://localhost:5173, proxies /api to the API)
+npm install && npm run dev
+```
+
+Full setup, API reference and security notes: [server/README.md](server/README.md).
 # React + TypeScript + Vite
 
 This template provides a minimal setup to get React working in Vite with HMR and some Oxlint rules.

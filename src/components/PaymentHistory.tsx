@@ -1,6 +1,7 @@
-import React, { useCallback, useState } from 'react';
+import React, { useCallback, useEffect, useState } from 'react';
 import { RefreshCw, Trash2, Wallet } from 'lucide-react';
-import { clearPayments, listPayments, revenueByCurrency, type PaymentRecord } from '../services/payments';
+import { paymentsApi, type PaymentRecord } from '../services/payments';
+import { messageFor } from '../services/api';
 import { formatExpiryDate } from '../services/subscription';
 
 const methodBadge = (method: PaymentRecord['method']) =>
@@ -8,19 +9,41 @@ const methodBadge = (method: PaymentRecord['method']) =>
     ? 'bg-blue-100 text-blue-700'
     : 'bg-neutral-100 text-neutral-600';
 
-/** Admin view of every subscription payment captured on this device. */
+/**
+ * Admin view of the payment ledger. The rows and the revenue totals are
+ * computed by the backend from payments it verified itself.
+ */
 export const PaymentHistory: React.FC = () => {
-  const [payments, setPayments] = useState<PaymentRecord[]>(() => listPayments());
-  const [revenue, setRevenue] = useState<Record<string, number>>(() => revenueByCurrency());
+  const [payments, setPayments] = useState<PaymentRecord[]>([]);
+  const [revenue, setRevenue] = useState<Record<string, number>>({});
+  const [error, setError] = useState('');
+  const [busy, setBusy] = useState(false);
 
-  const refresh = useCallback(() => {
-    setPayments(listPayments());
-    setRevenue(revenueByCurrency());
+  const refresh = useCallback(async () => {
+    try {
+      const res = await paymentsApi.all();
+      setPayments(res.payments);
+      setRevenue(res.revenue);
+    } catch (err) {
+      setError(messageFor(err));
+    }
   }, []);
 
-  const handleClear = () => {
-    clearPayments();
-    refresh();
+  useEffect(() => {
+    void refresh();
+  }, [refresh]);
+
+  const handleClear = async () => {
+    setBusy(true);
+    setError('');
+    try {
+      await paymentsApi.clear();
+    } catch (err) {
+      setError(messageFor(err));
+    } finally {
+      setBusy(false);
+      await refresh();
+    }
   };
 
   const totalLabel =
@@ -35,7 +58,7 @@ export const PaymentHistory: React.FC = () => {
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div>
           <h2 className="text-xl font-bold text-neutral-800">Payments</h2>
-          <p className="text-xs text-neutral-500">Subscription payments recorded on this device.</p>
+          <p className="text-xs text-neutral-500">Subscription payments verified by the server.</p>
         </div>
         <div className="flex items-center gap-2">
           <div className="flex items-center gap-2 px-3 py-2 rounded-lg bg-emerald-50 border border-emerald-200">
@@ -44,14 +67,14 @@ export const PaymentHistory: React.FC = () => {
             <span className="text-[11px] text-emerald-600">revenue</span>
           </div>
           <button
-            onClick={refresh}
+            onClick={() => void refresh()}
             title="Refresh"
             className="p-2 rounded-lg border border-neutral-200 text-neutral-500 hover:text-emerald-600 hover:bg-neutral-50"
           >
-            <RefreshCw className="w-4 h-4" />
+            <RefreshCw className={busy ? 'w-4 h-4 animate-spin' : 'w-4 h-4'} />
           </button>
           <button
-            onClick={handleClear}
+            onClick={() => void handleClear()}
             title="Clear ledger"
             className="p-2 rounded-lg border border-neutral-200 text-neutral-500 hover:text-red-600 hover:bg-red-50"
           >
@@ -59,6 +82,11 @@ export const PaymentHistory: React.FC = () => {
           </button>
         </div>
       </div>
+{error && (
+        <div className="px-3 py-2 rounded-lg bg-red-50 border border-red-200 text-red-700 text-xs">
+          {error}
+        </div>
+      )}
 
       {payments.length === 0 ? (
         <div className="py-12 text-center text-sm text-neutral-400 bg-white border border-neutral-200 rounded-lg">

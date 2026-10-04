@@ -1,40 +1,52 @@
-import React, { useCallback, useState } from 'react';
+import React, { useCallback, useEffect, useState } from 'react';
 import { Ban, Calendar, RefreshCw, ShieldCheck } from 'lucide-react';
-import { useAuth } from '../context/AuthContext';
-import { listUsers } from '../services/localAuth';
-import type { AppUser } from '../services/localAuth';
+import { adminApi, type AppUser } from '../services/localAuth';
+import { messageFor } from '../services/api';
 import { PlanDistributionChart } from './PlanDistributionChart';
-import {
-  applySubscription,
-  cancelSubscription,
-  getSubscriptionStatus,
-  type PlanId,
-} from '../services/subscription';
+import { getSubscriptionStatus } from '../services/subscription';
 
-/** Admin view of every account's subscription with quick grant/cancel actions. */
+/**
+ * Admin view of every account's subscription with quick grant/cancel actions.
+ * Grants and cancellations are applied by the server, which recomputes the
+ * expiry from its own plan catalogue.
+ */
 export const SubscriptionTable: React.FC = () => {
-  const { adminUpdateUser } = useAuth();
-  const [users, setUsers] = useState<AppUser[]>(() => listUsers());
+  const [users, setUsers] = useState<AppUser[]>([]);
+  const [error, setError] = useState('');
+  const [busy, setBusy] = useState(false);
 
-  const refresh = useCallback(() => setUsers(listUsers()), []);
+  const refresh = useCallback(async () => {
+    try {
+      const res = await adminApi.listUsers();
+      setUsers(res.users);
+    } catch (err) {
+      setError(messageFor(err));
+    }
+  }, []);
 
-  const persist = (updated: AppUser) => {
-    adminUpdateUser(updated.id, {
-      plan: updated.plan,
-      subscriptionPlan: updated.subscriptionPlan,
-      subscriptionExpiresAt: updated.subscriptionExpiresAt,
-      freeEditsUsedToday: updated.freeEditsUsedToday,
-      lastFreeEditDate: updated.lastFreeEditDate,
-    });
-    refresh();
+  useEffect(() => {
+    void refresh();
+  }, [refresh]);
+
+  const run = async (fn: () => Promise<unknown>) => {
+    setBusy(true);
+    setError('');
+    try {
+      await fn();
+    } catch (err) {
+      setError(messageFor(err));
+    } finally {
+      setBusy(false);
+      await refresh();
+    }
   };
 
-  const handleGrant = (target: AppUser, planId: PlanId) => persist(applySubscription(target, planId));
-  const handleCancel = (target: AppUser) => persist(cancelSubscription(target));
-  const handleResetEdits = (target: AppUser) => {
-    adminUpdateUser(target.id, { freeEditsUsedToday: 0, lastFreeEditDate: null });
-    refresh();
-  };
+  const handleGrant = (target: AppUser, planId: 'pro-weekly' | 'pro-monthly') =>
+    void run(() => adminApi.grantSubscription(target.id, planId));
+
+  const handleCancel = (target: AppUser) => void run(() => adminApi.cancelSubscription(target.id));
+
+  const handleResetEdits = (target: AppUser) => void run(() => adminApi.resetEdits(target.id));
 
   return (
     <div className="space-y-4">
@@ -44,13 +56,18 @@ export const SubscriptionTable: React.FC = () => {
           <p className="text-xs text-neutral-500">Grant or revoke Pro access for any account.</p>
         </div>
         <button
-          onClick={refresh}
+          onClick={() => void refresh()}
           title="Refresh"
           className="p-2 rounded-lg border border-neutral-200 text-neutral-500 hover:text-emerald-600 hover:bg-neutral-50"
         >
-          <RefreshCw className="w-4 h-4" />
+          <RefreshCw className={busy ? 'w-4 h-4 animate-spin' : 'w-4 h-4'} />
         </button>
       </div>
+{error && (
+        <div className="px-3 py-2 rounded-lg bg-red-50 border border-red-200 text-red-700 text-xs">
+          {error}
+        </div>
+      )}
 
       <PlanDistributionChart users={users} />
 

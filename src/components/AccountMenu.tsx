@@ -118,7 +118,7 @@ export const AccountMenu: React.FC<AccountMenuProps> = ({ onOpenUpgrade, onOpenA
             )}
 
             <button
-              onClick={() => { setOpen(false); logout(); }}
+              onClick={() => { setOpen(false); void logout(); }}
               className="w-full flex items-center gap-2 px-3 py-2 rounded-lg text-sm font-medium text-neutral-700 hover:bg-neutral-100"
             >
               <LogOut className="w-4 h-4" />

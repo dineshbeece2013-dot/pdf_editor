@@ -1,7 +1,17 @@
-// Local, browser-only payment ledger.
-// Every successful subscription purchase appends a record here so the admin
-// dashboard can show payment history and revenue. In production this would be
-// backed by the Razorpay webhook / server instead of localStorage.
+import { api } from './api';
+
+/**
+ * Payment ledger API client.
+ *
+ * Replaces the old localStorage ledger. Rows are written by the backend when
+ * it creates an order and again when it verifies Razorpay's signature, so the
+ * amounts shown here are the ones the server priced — not anything the browser
+ * claimed. The `PaymentRecord` shape is unchanged so the admin table renders
+ * exactly as before.
+ */
+
+export type PaymentStatus = 'created' | 'captured' | 'failed' | 'refunded';
+export type PaymentMethod = 'razorpay' | 'demo';
 
 export interface PaymentRecord {
   id: string;
@@ -12,61 +22,21 @@ export interface PaymentRecord {
   planName: string;
   amount: number;
   currency: string;
-  /** Razorpay payment id (or a synthetic id for demo payments). */
+  /** Razorpay payment id, falling back to the order id until it is captured. */
   razorpayPaymentId: string;
-  status: 'captured' | 'failed';
-  /** Where the payment came from — real checkout or the local demo flow. */
-  method: 'razorpay' | 'demo';
+  status: PaymentStatus;
+  /** Where the payment came from — real checkout or the sandbox shortcut. */
+  method: PaymentMethod;
   createdAt: number;
 }
 
-const PAYMENTS_KEY = 'pdfpro.payments';
+export const paymentsApi = {
+  /** The signed-in user's own history. */
+  mine: () => api.get<{ payments: PaymentRecord[] }>('/payments'),
 
-function read(): PaymentRecord[] {
-  try {
-    const raw = localStorage.getItem(PAYMENTS_KEY);
-    return raw ? (JSON.parse(raw) as PaymentRecord[]) : [];
-  } catch {
-    return [];
-  }
-}
+  /** Every payment plus revenue grouped by currency. Admin only. */
+  all: () => api.get<{ payments: PaymentRecord[]; revenue: Record<string, number> }>('/admin/payments'),
 
-function write(records: PaymentRecord[]): void {
-  try {
-    localStorage.setItem(PAYMENTS_KEY, JSON.stringify(records));
-  } catch {
-    /* storage unavailable — ignore in demo */
-  }
-}
-
-export function listPayments(): PaymentRecord[] {
-  return read().sort((a, b) => b.createdAt - a.createdAt);
-}
-
-export function recordPayment(
-  input: Omit<PaymentRecord, 'id' | 'createdAt'>,
-): PaymentRecord {
-  const record: PaymentRecord = {
-    ...input,
-    id: 'pay-rec-' + Date.now() + '-' + Math.random().toString(36).slice(2, 7),
-    createdAt: Date.now(),
-  };
-  const all = read();
-  all.push(record);
-  write(all);
-  return record;
-}
-
-export function clearPayments(): void {
-  write([]);
-}
-
-/** Total captured revenue, grouped by currency. */
-export function revenueByCurrency(): Record<string, number> {
-  const totals: Record<string, number> = {};
-  for (const p of read()) {
-    if (p.status !== 'captured') continue;
-    totals[p.currency] = (totals[p.currency] ?? 0) + p.amount;
-  }
-  return totals;
-}
+  /** Empty the ledger. Admin only. */
+  clear: () => api.delete<{ ok: true }>('/admin/payments'),
+};

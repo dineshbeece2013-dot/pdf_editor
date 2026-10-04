@@ -1,10 +1,10 @@
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import { Check, Crown, Loader2, ShieldCheck, Sparkles } from 'lucide-react';
 import { Modal } from './Modal';
 import { useAuth } from '../context/AuthContext';
 import { SUBSCRIPTION_PLANS, type PlanId } from '../services/subscription';
-import { isPlaceholderKey, startRazorpayCheckout } from '../services/razorpay';
-import { recordPayment } from '../services/payments';
+import { gatewayApi, startRazorpayCheckout, subscriptionApi } from '../services/razorpay';
+import { messageFor } from '../services/api';
 
 export interface UpgradeModalProps {
   isOpen: boolean;
@@ -28,55 +28,85 @@ const FEATURES = [
  * plan and, on success, activates the plan locally + logs the payment.
  */
 export const UpgradeModal: React.FC<UpgradeModalProps> = ({ isOpen, onClose, reason, onSubscribed }) => {
-  const { user, subscribe } = useAuth();
+  const { user, applyServerUser } = useAuth();
   const [selected, setSelected] = useState<PlanId>('pro-monthly');
   const [status, setStatus] = useState<'idle' | 'processing' | 'error' | 'success'>('idle');
   const [message, setMessage] = useState('');
+  const [gatewayReady, setGatewayReady] = useState<boolean | null>(null);
 
   const plan = SUBSCRIPTION_PLANS[selected];
   const currencySymbol = String(plan.currency) === 'INR' ? '\u20b9' : '$';
 
-  const activate = (planId: PlanId, paymentId: string, method: 'razorpay' | 'demo') => {
-    if (!user) return;
-    subscribe(planId);
-    const p = SUBSCRIPTION_PLANS[planId];
-    recordPayment({
-      userId: user.id,
-      userName: user.name,
-      userEmail: user.email,
-      planId,
-      planName: p.name,
-      amount: p.price,
-      currency: p.currency,
-      razorpayPaymentId: paymentId,
-      status: 'captured',
-      method,
-    });
-    setStatus('success');
-    setMessage('');
-    onSubscribed?.(planId);
-  };
+  // Whether real checkout is possible is decided by the server's stored
+  // configuration, not by anything bundled into this page.
+  useEffect(() => {
+    if (!isOpen) return;
+    let cancelled = false;
+    void gatewayApi
+      .get()
+      .then((cfg) => {
+        if (!cancelled) setGatewayReady(cfg.isConfigured);
+      })
+      .catch(() => {
+        if (!cancelled) setGatewayReady(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [isOpen]);
 
   const handleRazorpay = async () => {
     if (!user) return;
     setStatus('processing');
     setMessage('');
-    const result = await startRazorpayCheckout({
-      planId: selected,
-      userName: user.name,
-      userEmail: user.email,
-    });
-    if (result.success && result.paymentId) {
-      activate(selected, result.paymentId, 'razorpay');
-    } else {
+
+    try {
+      // 1. The server creates and prices the order.
+      const order = await subscriptionApi.createOrder(selected);
+
+      // 2. The browser opens checkout with that order's amount.
+      const result = await startRazorpayCheckout({
+        order,
+        userName: user.name,
+        userEmail: user.email,
+      });
+      if (!result.success || !result.payment) {
+        setStatus('error');
+        setMessage(result.error ?? 'Payment could not be completed.');
+        return;
+      }
+
+      // 3. The server verifies Razorpay's signature before granting access.
+      const verified = await subscriptionApi.verify(result.payment);
+      if (verified.user) applyServerUser(verified.user);
+
+      setStatus('success');
+      setMessage('');
+      onSubscribed?.(selected);
+    } catch (err) {
       setStatus('error');
-      setMessage(result.error ?? 'Payment could not be completed.');
+      setMessage(messageFor(err));
     }
   };
 
-  /** Local fallback so the flow is testable without live Razorpay keys. */
-  const handleDemo = () => {
-    activate(selected, 'pay_demo_' + Date.now(), 'demo');
+  /**
+   * Sandbox shortcut so the flow is testable without live keys. It is refused
+   * by the server when demo payments are disabled (always, in production).
+   */
+  const handleDemo = async () => {
+    if (!user) return;
+    setStatus('processing');
+    setMessage('');
+    try {
+      const res = await subscriptionApi.demo(selected);
+      if (res.user) applyServerUser(res.user);
+      setStatus('success');
+      setMessage('');
+      onSubscribed?.(selected);
+    } catch (err) {
+      setStatus('error');
+      setMessage(messageFor(err));
+    }
   };
 
   const reset = () => {
@@ -203,10 +233,10 @@ export const UpgradeModal: React.FC<UpgradeModalProps> = ({ isOpen, onClose, rea
             </button>
           </div>
 
-          {isPlaceholderKey() && (
+          {gatewayReady === false && (
             <p className="text-[10px] text-neutral-400 leading-relaxed">
-              Razorpay is using placeholder keys from <code>config.ts</code>. Add live test keys in the
-              admin dashboard → Razorpay, or use the demo payment to try the flow.
+              Razorpay is not configured on this server. An administrator can add test keys in the admin
+              dashboard → Razorpay, or use the demo payment to try the flow.
             </p>
           )}
         </div>

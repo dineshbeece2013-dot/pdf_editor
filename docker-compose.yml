@@ -1,0 +1,29 @@
+# Local PostgreSQL for development.
+#
+#   docker compose up -d
+#
+# Creates an empty `pdfpro` database matching server/.env.example. The schema
+# itself is created by the API on startup (src/migrate.ts) — there is no
+# separate migration step to forget.
+services:
+  db:
+    image: postgres:16-alpine
+    container_name: pdfpro-db
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: pdfpro
+      POSTGRES_PASSWORD: pdfpro
+      POSTGRES_DB: pdfpro
+    ports:
+      # Bound to localhost only — never expose the database publicly.
+      - '127.0.0.1:5432:5432'
+    volumes:
+      - pdfpro-db-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ['CMD-SHELL', 'pg_isready -U pdfpro -d pdfpro']
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+volumes:
+  pdfpro-db-data:

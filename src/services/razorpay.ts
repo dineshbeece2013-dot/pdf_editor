@@ -1,54 +1,59 @@
-// Razorpay Standard Checkout integration.
-//
-// The publishable `keyId` is shipped to the browser (that is by design); the
-// `keySecret` is NEVER used client-side for a real charge — it lives here only
-// so the admin dashboard can store/display it. A production build must create
-// the order (and verify the signature) on a server, then hand the browser the
-// `order_id`. This demo opens checkout directly with key + amount.
+import { api } from './api';
+import type { AppUser } from './localAuth';
 
-import { RAZORPAY } from '../config';
-import { SUBSCRIPTION_PLANS, type PlanId } from './subscription';
+/**
+ * Razorpay checkout + gateway configuration.
+ *
+ * Two rules hold throughout:
+ *  1. The browser never sees the key secret. It only ever receives the
+ *     publishable key id, and `PublicGatewayConfig` has no field for a secret.
+ *  2. The browser never decides an amount. It asks the server for an order and
+ *     opens the checkout with the amount the server priced; access is granted
+ *     only when the server independently verifies Razorpay's signature.
+ */
 
-export interface RazorpayConfig {
+export interface PublicGatewayConfig {
   keyId: string;
-  keySecret: string;
   currency: string;
+  /** Tells the admin UI a secret exists without revealing it. */
+  hasSecret: boolean;
+  isConfigured: boolean;
 }
 
-const CONFIG_KEY = 'pdfpro.razorpay';
+export const gatewayApi = {
+  get: () => api.get<PublicGatewayConfig>('/razorpay/config'),
+  /** The secret is write-only: send it once to set or replace it. */
+  save: (patch: { keyId?: string; keySecret?: string; currency?: string }) =>
+    api.put<PublicGatewayConfig>('/razorpay/config', patch),
+};
 
-/** Effective Razorpay config: admin override (localStorage) or config.ts default. */
-export function getRazorpayConfig(): RazorpayConfig {
-  try {
-    const raw = localStorage.getItem(CONFIG_KEY);
-    if (raw) {
-      const parsed = JSON.parse(raw) as Partial<RazorpayConfig>;
-      return {
-        keyId: parsed.keyId ?? RAZORPAY.keyId,
-        keySecret: parsed.keySecret ?? RAZORPAY.keySecret,
-        currency: parsed.currency ?? RAZORPAY.currency,
-      };
-    }
-  } catch {
-    /* ignore */
-  }
-  return { keyId: RAZORPAY.keyId, keySecret: RAZORPAY.keySecret, currency: RAZORPAY.currency };
+export interface CreatedOrder {
+  orderId: string;
+  keyId: string;
+  /** Smallest currency unit, as Razorpay expects. */
+  amount: number;
+  currency: string;
+  planId: string;
+  planName: string;
+  description: string;
 }
 
-export function saveRazorpayConfig(patch: Partial<RazorpayConfig>): RazorpayConfig {
-  const next = { ...getRazorpayConfig(), ...patch };
-  try {
-    localStorage.setItem(CONFIG_KEY, JSON.stringify(next));
-  } catch {
-    /* ignore */
-  }
-  return next;
+/** The triple Razorpay returns, which the server will verify. */
+export interface PaymentProof {
+  razorpay_order_id: string;
+  razorpay_payment_id: string;
+  razorpay_signature: string;
 }
 
-/** True when the configured key is still the placeholder shipped in config.ts. */
-export function isPlaceholderKey(): boolean {
-  return getRazorpayConfig().keyId === RAZORPAY.keyId;
-}
+export const subscriptionApi = {
+  plans: () => api.get<{ gateway: PublicGatewayConfig }>('/subscription/plans'),
+  createOrder: (planId: string) => api.post<CreatedOrder>('/subscription/order', { planId }),
+  verify: (proof: PaymentProof) =>
+    api.post<{ user: AppUser | null; replay: boolean }>('/subscription/verify', proof),
+  /** Sandbox shortcut; the server refuses it when disabled. */
+  demo: (planId: string) => api.post<{ user: AppUser | null; demo: boolean }>('/subscription/demo', { planId }),
+  cancel: () => api.post<{ user: AppUser | null }>('/subscription/cancel'),
+};
 
 declare global {
   interface Window {
@@ -88,24 +93,21 @@ export function loadRazorpayScript(): Promise<boolean> {
 
 export interface CheckoutResult {
   success: boolean;
-  paymentId?: string;
+  /** Present only on success; hand it straight to subscriptionApi.verify. */
+  payment?: PaymentProof;
   error?: string;
 }
 
-export interface CheckoutOptions {
-  planId: PlanId;
+/**
+ * Open the Razorpay checkout for an order the server already created, and
+ * resolve once the user pays, dismisses, or the payment fails.
+ */
+export async function startRazorpayCheckout(opts: {
+  order: CreatedOrder;
   userName: string;
   userEmail: string;
-}
-
-/**
- * Open the Razorpay checkout for a plan and resolve once the user pays,
- * dismisses, or the payment fails.
- */
-export async function startRazorpayCheckout(opts: CheckoutOptions): Promise<CheckoutResult> {
-  const plan = SUBSCRIPTION_PLANS[opts.planId];
-  const config = getRazorpayConfig();
-  const amount = Math.round(plan.price * 100); // smallest currency unit
+}): Promise<CheckoutResult> {
+  const { order } = opts;
 
   const loaded = await loadRazorpayScript();
   if (!loaded || !window.Razorpay) {
@@ -120,18 +122,33 @@ export async function startRazorpayCheckout(opts: CheckoutOptions): Promise<Chec
     }
 
     const instance = new RazorpayCtor({
-      key: config.keyId,
-      amount,
-      currency: config.currency,
+      key: order.keyId,
+      order_id: order.orderId,
+      amount: order.amount,
+      currency: order.currency,
       name: 'PDF Editor Pro',
-      description: plan.description,
+      description: order.description,
       prefill: { name: opts.userName, email: opts.userEmail },
-      notes: { planId: opts.planId },
       theme: { color: '#059669' },
-      handler: (response: { razorpay_payment_id?: string }) => {
+      handler: (response: {
+        razorpay_payment_id?: string;
+        razorpay_order_id?: string;
+        razorpay_signature?: string;
+      }) => {
+        const paymentId = response?.razorpay_payment_id;
+        const orderId = response?.razorpay_order_id;
+        const signature = response?.razorpay_signature;
+        if (!paymentId || !orderId || !signature) {
+          resolve({ success: false, error: 'The payment response was incomplete.' });
+          return;
+        }
         resolve({
           success: true,
-          paymentId: response?.razorpay_payment_id || 'pay_' + Date.now(),
+          payment: {
+            razorpay_payment_id: paymentId,
+            razorpay_order_id: orderId,
+            razorpay_signature: signature,
+          },
         });
       },
       modal: {

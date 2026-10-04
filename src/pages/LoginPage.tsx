@@ -2,35 +2,42 @@ import React, { useState } from 'react';
 import { useAuth } from '../context/AuthContext';
 import { FileText, Lock, Mail, User as UserIcon, ArrowRight } from 'lucide-react';
 import { navigate } from '../services/router';
+import { messageFor } from '../services/api';
 
 export const LoginPage: React.FC = () => {
-  const { login, register } = useAuth();
+  const { login, register, passwordMinLength } = useAuth();
   const [mode, setMode] = useState<'login' | 'register'>('login');
   const [name, setName] = useState('');
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [error, setError] = useState('');
+  const [busy, setBusy] = useState(false);
 
   const inputWrap = 'relative';
   const inputIcon = 'absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-neutral-400 pointer-events-none';
   const inputCls =
     'w-full pl-9 pr-3 py-2.5 text-sm border border-neutral-300 rounded-lg focus:border-emerald-500 focus:outline-none text-neutral-800 bg-white placeholder:text-neutral-400';
 
-  const submit = (e: React.FormEvent) => {
+  const submit = async (e: React.FormEvent) => {
     e.preventDefault();
     setError('');
+    setBusy(true);
     try {
       if (mode === 'login') {
-        login(email, password);
+        await login(email, password);
       } else {
         if (name.trim().length < 2) throw new Error('Please enter your name.');
-        if (password.length < 6) throw new Error('Password must be at least 6 characters.');
-        register(name, email, password);
+        if (password.length < passwordMinLength) {
+          throw new Error(`Password must be at least ${passwordMinLength} characters.`);
+        }
+        await register(name, email, password);
       }
       // Signed in — hand the user back to the editor, which is the landing page.
       navigate('/');
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Something went wrong.');
+      setError(messageFor(err));
+    } finally {
+      setBusy(false);
     }
   };
 
@@ -111,15 +118,23 @@ export const LoginPage: React.FC = () => {
                   placeholder="Password"
                   className={inputCls}
                   autoComplete={mode === 'login' ? 'current-password' : 'new-password'}
+                  minLength={mode === 'register' ? passwordMinLength : undefined}
                   required
                 />
               </div>
               <button
                 type="submit"
-                className="w-full py-2.5 bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg font-semibold text-sm flex items-center justify-center gap-2 shadow-sm transition-colors"
+                disabled={busy}
+                className="w-full py-2.5 bg-emerald-600 hover:bg-emerald-700 disabled:opacity-60 text-white rounded-lg font-semibold text-sm flex items-center justify-center gap-2 shadow-sm transition-colors"
               >
-                {mode === 'login' ? 'Sign in' : 'Create account'}
-                <ArrowRight className="w-4 h-4" />
+                {busy
+                  ? mode === 'login'
+                    ? 'Signing in…'
+                    : 'Creating account…'
+                  : mode === 'login'
+                    ? 'Sign in'
+                    : 'Create account'}
+                {!busy && <ArrowRight className="w-4 h-4" />}
               </button>
             </form>
 

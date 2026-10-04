@@ -1,0 +1,8 @@
+# Dependencies and build output
+node_modules/
+dist/
+
+# Real secrets — never commit. Only .env.example belongs in git.
+.env
+.env.*
+!.env.example
