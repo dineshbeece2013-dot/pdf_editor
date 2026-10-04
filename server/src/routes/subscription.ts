@@ -13,6 +13,7 @@ import {
 } from '../repositories/payments.js';
 import { activateSubscription, cancelSubscription, findById, toUserDto } from '../repositories/users.js';
 import { makeOrderReference, verifyRazorpaySignature } from '../security/razorpaySignature.js';
+import { createRazorpayOrder, RazorpayApiError } from '../razorpay/client.js';
 import { requireAuth } from '../middleware/auth.js';
 import { HttpError } from '../middleware/errors.js';
 import { rateLimit } from '../middleware/rateLimit.js';
@@ -51,7 +52,39 @@ export function subscriptionRouter(db: Database, config: AppConfig): Router {
           throw new HttpError(503, 'Payments are not configured yet.');
         }
 
-        const order = await createPendingOrder(db, {
+        // The charge is denominated in the gateway currency. Refuse a
+        // mismatch rather than silently charging "₹3" for a plan advertised
+        // as "$3 / month".
+        if (plan.currency !== gateway.currency) {
+          throw new HttpError(
+            400,
+            `This plan is priced in ${plan.currency} but the gateway is set to ${gateway.currency}. ` +
+              'Set a matching currency in the admin dashboard (Razorpay) or change the plan price.',
+          );
+        }
+
+        const amount = Math.round(plan.price * 100);
+
+        // The order has to exist in Razorpay's own system: checkout looks it
+        // up by id to determine the amount, and rejects ids it has not seen.
+        let razorpayOrder;
+        try {
+          razorpayOrder = await createRazorpayOrder({
+            keyId: gateway.keyId,
+            keySecret: gateway.keySecret,
+            amount,
+            currency: gateway.currency,
+            receipt: makeOrderReference(),
+            notes: { planId: plan.id },
+          });
+        } catch (err) {
+          const detail = err instanceof RazorpayApiError ? err.message : 'Could not reach Razorpay.';
+          throw new HttpError(502, detail);
+        }
+
+        // Our row records the *real* Razorpay order id, which is also what the
+        // signature is computed over, so verification stays a simple lookup.
+        await createPendingOrder(db, {
           id: randomUUID(),
           userId: req.authUser!.id,
           planId: plan.id,
@@ -59,15 +92,15 @@ export function subscriptionRouter(db: Database, config: AppConfig): Router {
           amount: plan.price,
           currency: gateway.currency,
           provider: 'razorpay',
-          orderId: makeOrderReference(),
+          orderId: razorpayOrder.id,
         });
 
         res.status(201).json({
-          orderId: order.razorpay_order_id,
+          orderId: razorpayOrder.id,
           keyId: gateway.keyId,
-          // Razorpay expects the amount in the smallest currency unit.
-          amount: Math.round(plan.price * 100),
-          currency: gateway.currency,
+          // Echo Razorpay's own figures rather than ours.
+          amount: razorpayOrder.amount,
+          currency: razorpayOrder.currency,
           planId: plan.id,
           planName: plan.name,
           description: plan.description,

@@ -4,6 +4,8 @@ export default defineConfig({
   test: {
     environment: 'node',
     include: ['tests/**/*.test.ts'],
+    // Blocks outbound calls to the payment gateway during tests.
+    setupFiles: ['tests/setup.ts'],
     // Argon2id is intentionally expensive (19 MiB, 2 passes), and the suite
     // hashes a lot of passwords.
     testTimeout: 60_000,

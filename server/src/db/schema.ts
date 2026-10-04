@@ -60,7 +60,7 @@ CREATE TABLE IF NOT EXISTS razorpay_config (
   id             integer PRIMARY KEY DEFAULT 1 CHECK (id = 1),
   key_id         text,
   key_secret_enc text,
-  currency       text NOT NULL DEFAULT 'INR',
+  currency       text NOT NULL DEFAULT 'USD',
   updated_at     timestamptz NOT NULL DEFAULT now()
 );
 

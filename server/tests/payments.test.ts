@@ -34,7 +34,7 @@ async function configureGateway() {
   const res = await admin.put('/api/razorpay/config', {
     keyId: KEY_ID,
     keySecret: KEY_SECRET,
-    currency: 'INR',
+    currency: 'USD',
   });
   expect(res.status).toBe(200);
   return admin;
@@ -108,7 +108,7 @@ describe('subscription orders are priced server-side', () => {
     expect(res.status).toBe(201);
     // The client cannot influence this number.
     expect(res.body.amount).toBe(300);
-    expect(res.body.currency).toBe('INR');
+    expect(res.body.currency).toBe('USD');
     expect(res.body.keyId).toBe(KEY_ID);
     expect(res.body.orderId).toMatch(/^order_/);
   });
@@ -272,7 +272,7 @@ describe('payment ledger', () => {
     expect(res.body.payments).toHaveLength(1);
     expect(res.body.payments[0].razorpayPaymentId).toBe(paymentId);
     expect(res.body.payments[0].userEmail).toBe('user@example.com');
-    expect(res.body.revenue.INR).toBe(3);
+    expect(res.body.revenue.USD).toBe(3);
   });
 
   it('keeps the all-payments ledger out of reach of a normal user', async () => {
