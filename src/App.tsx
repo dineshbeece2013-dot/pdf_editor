@@ -6,7 +6,7 @@ import { LoginPage } from './pages/LoginPage';
 function AppViews() {
   const { user } = useAuth();
 
-  // Login gate disabled for now (see src/config.ts) — the editor opens directly.
+  // Login gate — when enabled, users are gated behind login page.
   if (AUTH_ENABLED && !user) return <LoginPage />;
   return <EditorApp />;
 }

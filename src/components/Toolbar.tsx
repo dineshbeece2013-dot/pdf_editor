@@ -58,6 +58,8 @@ export interface ToolbarProps {
   onClearAnnotations: () => void;
   toolColors: ToolColors;
   onSetToolColor: (key: ToolColorKey, color: string) => void;
+  /** Optional account/subscription control rendered at the top-right. */
+  accountSlot?: React.ReactNode;
 }
 
 type DropdownMenu = 'erase' | 'annotate' | 'shape' | 'color';
@@ -106,6 +108,7 @@ export const Toolbar: React.FC<ToolbarProps> = ({
   onClearAnnotations,
   toolColors,
   onSetToolColor,
+  accountSlot,
 }) => {
   const [openMenu, setOpenMenu] = useState<DropdownMenu | null>(null);
   const [menuPos, setMenuPos] = useState({ left: 0, top: 0 });
@@ -189,6 +192,7 @@ export const Toolbar: React.FC<ToolbarProps> = ({
         </button>
 
         <div className="ml-auto flex items-center gap-2">
+          {accountSlot}
           <button
             onClick={onExport}
             className="flex items-center gap-1.5 px-3.5 sm:px-4 py-2 bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg font-semibold text-xs shadow-sm"

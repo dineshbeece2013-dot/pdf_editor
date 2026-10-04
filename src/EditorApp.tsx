@@ -19,6 +19,10 @@ import { PdfViewer } from './components/PdfViewer';
 import { SignaturePadModal } from './components/SignaturePadModal';
 import { createSamplePdf, exportModifiedPdf } from './services/pdfExporter';
 import { ChevronDown, ChevronLeft, ChevronRight, ZoomIn, ZoomOut } from 'lucide-react';
+import { useAuth } from './context/AuthContext';
+import { AccountMenu } from './components/AccountMenu';
+import { UpgradeModal } from './components/UpgradeModal';
+import { AdminDashboard } from './components/AdminDashboard';
 
 /** The undoable document state: everything that changes the exported PDF. */
 type DocState = {
@@ -35,6 +39,15 @@ type DocState = {
 const HISTORY_LIMIT = 50;
 
 export function EditorApp() {
+
+  // ----- Subscription / access control -----------------------------------
+  const { canEditResult, recordEdit, subscriptionStatus } = useAuth();
+  const [showUpgrade, setShowUpgrade] = useState(false);
+  const [showAdmin, setShowAdmin] = useState(false);
+  const [upgradeReason, setUpgradeReason] = useState<string | undefined>(undefined);
+  // Once a free user starts an edit we grant the whole session so a multi-step
+  // change (draw, move, resize, delete) counts as a single daily "edit".
+  const [editSessionGranted, setEditSessionGranted] = useState(false);
 
   const [pdfBytes, setPdfBytes] = useState<Uint8Array | null>(null);
   const [currentPage, setCurrentPage] = useState(0);
@@ -96,6 +109,26 @@ export function EditorApp() {
   });
   const handleSetToolColor = (key: ToolColorKey, color: string) => {
     setToolColors((prev) => ({ ...prev, [key]: color }));
+  };
+
+  // ----- Access control (subscription) -----------------------------------
+  // Free accounts get one edit per day. Admins and active Pro subscribers are
+  // always allowed. When the daily limit is exhausted we open the upgrade flow.
+  const grantEditAccess = (): boolean => {
+    if (editSessionGranted) return true;
+    if (canEditResult.canEdit) {
+      setEditSessionGranted(true);
+      recordEdit();
+      return true;
+    }
+    setUpgradeReason(subscriptionStatus.editLimitReason);
+    setShowUpgrade(true);
+    return false;
+  };
+
+  const openUpgrade = (reason?: string) => {
+    setUpgradeReason(reason);
+    setShowUpgrade(true);
   };
 
   // ----- Undo / redo -----------------------------------------------------
@@ -196,6 +229,7 @@ export function EditorApp() {
 
   const handleAddTextOverlay = (overlay: EditedTextOverlay) => {
     if (!overlay.id) return;
+    if (!grantEditAccess()) return;
     pushHistory();
     setTextOverlays((prev) => [...prev, overlay]);
   };
@@ -207,11 +241,13 @@ export function EditorApp() {
     patch: Partial<EditedTextOverlay>,
     pushFirst?: boolean,
   ) => {
+    if (!grantEditAccess()) return;
     if (pushFirst) pushHistory();
     setTextOverlays((prev) => prev.map((o) => (o.id === id ? { ...o, ...patch } : o)));
   };
 
   const handleApplyCrop = (crop: PageCropSetting) => {
+    if (!grantEditAccess()) return;
     pushHistory();
     setCropSettings((prev) => ({
       ...prev,
@@ -221,6 +257,7 @@ export function EditorApp() {
 
   const handleResetCrop = (pageIndex: number) => {
     if (!cropSettings[pageIndex]) return;
+    if (!grantEditAccess()) return;
     pushHistory();
     setCropSettings((prev) => {
       const copy = { ...prev };
@@ -230,11 +267,13 @@ export function EditorApp() {
   };
 
   const handleAddHighlight = (hl: HighlightArea) => {
+    if (!grantEditAccess()) return;
     pushHistory();
     setHighlights((prev) => [...prev, hl]);
   };
 
   const handleAddDrawing = (draw: FreehandDrawing) => {
+    if (!grantEditAccess()) return;
     pushHistory();
     setDrawings((prev) => [...prev, draw]);
   };
@@ -245,27 +284,32 @@ export function EditorApp() {
   };
 
   const handleAddSignature = (sig: SignatureItem) => {
+    if (!grantEditAccess()) return;
     pushHistory();
     setSignatures((prev) => [...prev, sig]);
   };
 
   const handleAddImageOverlay = (img: ImageOverlay) => {
+    if (!grantEditAccess()) return;
     pushHistory();
     setImageOverlays((prev) => [...prev, img]);
   };
 
   const handleAddShape = (sh: ShapeOverlay) => {
+    if (!grantEditAccess()) return;
     pushHistory();
     setShapes((prev) => [...prev, sh]);
   };
 
   const handleAddStamp = (st: StampOverlay) => {
+    if (!grantEditAccess()) return;
     pushHistory();
     setStamps((prev) => [...prev, st]);
   };
 
   const handleEraseItems = (ids: string[], isFirstOfStroke: boolean) => {
     if (ids.length === 0) return;
+    if (!grantEditAccess()) return;
     if (isFirstOfStroke) pushHistory();
     const idSet = new Set(ids);
     setDrawings((prev) => prev.filter((d) => !idSet.has(d.id)));
@@ -278,6 +322,7 @@ export function EditorApp() {
   };
 
   const handleClearAnnotations = () => {
+    if (!grantEditAccess()) return;
     pushHistory();
     const idx = currentPage;
     setDrawings((prev) => prev.filter((d) => d.pageIndex !== idx));
@@ -386,6 +431,10 @@ export function EditorApp() {
     return () => window.removeEventListener('keydown', onKey);
   });
 
+  if (showAdmin) {
+    return <AdminDashboard onClose={() => setShowAdmin(false)} />;
+  }
+
   return (
     <div className="flex flex-col h-screen w-screen overflow-hidden bg-neutral-100 font-sans">
       <Toolbar
@@ -417,6 +466,12 @@ export function EditorApp() {
         onClearAnnotations={handleClearAnnotations}
         toolColors={toolColors}
         onSetToolColor={handleSetToolColor}
+        accountSlot={
+          <AccountMenu
+            onOpenUpgrade={() => openUpgrade()}
+            onOpenAdmin={() => setShowAdmin(true)}
+          />
+        }
       />
 
       <div className="flex-1 flex overflow-hidden relative">
@@ -588,6 +643,12 @@ export function EditorApp() {
         isOpen={isSigModalOpen}
         onClose={() => setIsSigModalOpen(false)}
         onSave={handleSaveSignature}
+      />
+
+      <UpgradeModal
+        isOpen={showUpgrade}
+        onClose={() => setShowUpgrade(false)}
+        reason={upgradeReason}
       />
     </div>
   );

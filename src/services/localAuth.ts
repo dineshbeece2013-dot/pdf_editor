@@ -2,6 +2,8 @@
 // NOTE: demo implementation — data lives in localStorage and passwords are
 // stored as-is. Replace these functions with real API calls in production.
 
+export type SubscriptionPlan = 'free' | 'pro-weekly' | 'pro-monthly' | null;
+
 export interface AppUser {
   id: string;
   name: string;
@@ -10,6 +12,14 @@ export interface AppUser {
   role: 'admin' | 'user';
   plan: 'free' | 'pro';
   createdAt: number;
+  // Subscription fields
+  subscriptionPlan?: SubscriptionPlan;
+  subscriptionExpiresAt?: number | null;
+  // Daily free edit tracking
+  freeEditsUsedToday?: number;
+  lastFreeEditDate?: string | null; // YYYY-MM-DD
+  // Stats
+  totalEdits?: number;
 }
 
 const USERS_KEY = 'pdfpro.users';
@@ -40,8 +50,34 @@ export function seedUsers(): void {
   if (localStorage.getItem(USERS_KEY)) return;
   const now = Date.now();
   const seed: AppUser[] = [
-    { id: 'user-admin', name: 'Admin', email: 'admin@pdfpro.com', password: 'admin123', role: 'admin', plan: 'pro', createdAt: now },
-    { id: 'user-demo', name: 'Demo User', email: 'user@pdfpro.com', password: 'user123', role: 'user', plan: 'free', createdAt: now },
+    { 
+      id: 'user-admin', 
+      name: 'Admin', 
+      email: 'admin@pdfpro.com', 
+      password: 'admin123', 
+      role: 'admin', 
+      plan: 'pro', 
+      createdAt: now,
+      subscriptionPlan: 'pro-monthly',
+      subscriptionExpiresAt: now + (30 * 24 * 60 * 60 * 1000), // 30 days from now
+      freeEditsUsedToday: 0,
+      lastFreeEditDate: null,
+      totalEdits: 0
+    },
+    { 
+      id: 'user-demo', 
+      name: 'Demo User', 
+      email: 'user@pdfpro.com', 
+      password: 'user123', 
+      role: 'user', 
+      plan: 'free', 
+      createdAt: now,
+      subscriptionPlan: null,
+      subscriptionExpiresAt: null,
+      freeEditsUsedToday: 0,
+      lastFreeEditDate: null,
+      totalEdits: 0
+    },
   ];
   write(USERS_KEY, seed);
 }
@@ -91,4 +127,19 @@ export function clearSession(): void {
   } catch {
     /* ignore */
   }
+}
+
+/** Load a user by ID and persist a writeable copy back to storage. */
+export function updateUserData(id: string, updater: (u: AppUser) => Partial<AppUser>): AppUser | null {
+  const users = listUsers();
+  const idx = users.findIndex((u) => u.id === id);
+  if (idx < 0) return null;
+  users[idx] = { ...users[idx], ...updater(users[idx]) };
+  write(USERS_KEY, users);
+  return users[idx];
+}
+
+/** Save the entire user list back to storage (used by the admin dashboard). */
+export function persistUsers(users: AppUser[]): void {
+  write(USERS_KEY, users);
 }
