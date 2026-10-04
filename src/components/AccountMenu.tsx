@@ -1,5 +1,5 @@
 import React, { useEffect, useRef, useState } from 'react';
-import { ChevronDown, Crown, LayoutDashboard, LogIn, LogOut, User as UserIcon } from 'lucide-react';
+import { ChevronDown, Crown, KeyRound, LayoutDashboard, LogIn, LogOut, User as UserIcon } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
 import { formatExpiryDate } from '../services/subscription';
 import { ACCOUNTS_ENABLED } from '../config';
@@ -8,6 +8,8 @@ import { LOGIN_PATH, navigate } from '../services/router';
 export interface AccountMenuProps {
   onOpenUpgrade: () => void;
   onOpenAdmin: () => void;
+  /** Opens the change-password dialog. Only reachable when signed in. */
+  onChangePassword: () => void;
 }
 
 /**
@@ -16,7 +18,11 @@ export interface AccountMenuProps {
  * Once signed in it surfaces the user, their subscription state, the Pro upgrade
  * entry point and — for admins only — the admin dashboard + sign out.
  */
-export const AccountMenu: React.FC<AccountMenuProps> = ({ onOpenUpgrade, onOpenAdmin }) => {
+export const AccountMenu: React.FC<AccountMenuProps> = ({
+  onOpenUpgrade,
+  onOpenAdmin,
+  onChangePassword,
+}) => {
   const { user, subscriptionStatus, logout } = useAuth();
   const [open, setOpen] = useState(false);
   const wrapRef = useRef<HTMLDivElement>(null);
@@ -116,6 +122,14 @@ export const AccountMenu: React.FC<AccountMenuProps> = ({ onOpenUpgrade, onOpenA
                 Admin Dashboard
               </button>
             )}
+
+            <button
+              onClick={() => { setOpen(false); onChangePassword(); }}
+              className="w-full flex items-center gap-2 px-3 py-2 rounded-lg text-sm font-medium text-neutral-700 hover:bg-neutral-100"
+            >
+              <KeyRound className="w-4 h-4" />
+              Change password
+            </button>
 
             <button
               onClick={() => { setOpen(false); void logout(); }}

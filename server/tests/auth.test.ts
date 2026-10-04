@@ -180,4 +180,40 @@ describe('login and sessions', () => {
     const stale = await old.post('/api/auth/login', { email: 'ada@example.com', password: PASSWORD });
     expect(stale.status).toBe(401);
   });
+
+  it('cannot be used without a session', async () => {
+    const res = await h.client().post('/api/auth/password', {
+      currentPassword: PASSWORD,
+      newPassword: 'brand-new-password',
+    });
+    expect(res.status).toBe(401);
+  });
+
+  it('keeps the caller signed in afterwards', async () => {
+    const c = h.client();
+    await c.post('/api/auth/register', { name: 'Ada', email: 'ada@example.com', password: PASSWORD });
+
+    const changed = await c.post('/api/auth/password', {
+      currentPassword: PASSWORD,
+      newPassword: 'brand-new-password',
+    });
+    expect(changed.status).toBe(200);
+
+    // The old session id was replaced, but the caller must not be logged out.
+    const me = await c.get('/api/auth/me');
+    expect(me.status).toBe(200);
+    expect(me.body.user.email).toBe('ada@example.com');
+  });
+
+  it('enforces the minimum length', async () => {
+    const c = h.client();
+    await c.post('/api/auth/register', { name: 'Ada', email: 'ada@example.com', password: PASSWORD });
+
+    const res = await c.post('/api/auth/password', {
+      currentPassword: PASSWORD,
+      newPassword: 'short',
+    });
+    expect(res.status).toBe(400);
+    expect(res.body.error).toMatch(/at least 8/);
+  });
 });

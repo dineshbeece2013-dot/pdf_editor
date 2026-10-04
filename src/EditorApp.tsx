@@ -22,6 +22,7 @@ import { ChevronDown, ChevronLeft, ChevronRight, ZoomIn, ZoomOut } from 'lucide-
 import { useAuth } from './context/AuthContext';
 import { AccountMenu } from './components/AccountMenu';
 import { UpgradeModal } from './components/UpgradeModal';
+import { ChangePasswordModal } from './components/ChangePasswordModal';
 import { AdminDashboard } from './components/AdminDashboard';
 
 /** The undoable document state: everything that changes the exported PDF. */
@@ -44,6 +45,7 @@ export function EditorApp() {
   const { canEditResult, recordEdit, subscriptionStatus, user } = useAuth();
   const [showUpgrade, setShowUpgrade] = useState(false);
   const [showAdmin, setShowAdmin] = useState(false);
+  const [showChangePassword, setShowChangePassword] = useState(false);
   const [upgradeReason, setUpgradeReason] = useState<string | undefined>(undefined);
   // Once a free user starts an edit we grant the whole session so a multi-step
   // change (draw, move, resize, delete) counts as a single daily "edit".
@@ -473,6 +475,7 @@ export function EditorApp() {
           <AccountMenu
             onOpenUpgrade={() => openUpgrade()}
             onOpenAdmin={() => setShowAdmin(true)}
+            onChangePassword={() => setShowChangePassword(true)}
           />
         }
       />
@@ -652,6 +655,11 @@ export function EditorApp() {
         isOpen={showUpgrade}
         onClose={() => setShowUpgrade(false)}
         reason={upgradeReason}
+      />
+
+      <ChangePasswordModal
+        isOpen={showChangePassword}
+        onClose={() => setShowChangePassword(false)}
       />
     </div>
   );
