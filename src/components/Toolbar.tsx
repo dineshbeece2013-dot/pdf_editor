@@ -46,6 +46,12 @@ export interface ToolbarProps {
   canPaste: boolean;
   shapeKind: ShapeKind;
   setShapeKind: (k: ShapeKind) => void;
+  shapeFillEnabled: boolean;
+  setShapeFillEnabled: (v: boolean) => void;
+  shapeFillColor: string;
+  setShapeFillColor: (c: string) => void;
+  shapeFillOpacity: number;
+  setShapeFillOpacity: (v: number) => void;
   stampKind: StampKind;
   setStampKind: (k: StampKind) => void;
   onImageUpload: (e: React.ChangeEvent<HTMLInputElement>) => void;
@@ -88,6 +94,12 @@ export const Toolbar: React.FC<ToolbarProps> = ({
   canPaste,
   shapeKind,
   setShapeKind,
+  shapeFillEnabled,
+  setShapeFillEnabled,
+  shapeFillColor,
+  setShapeFillColor,
+  shapeFillOpacity,
+  setShapeFillOpacity,
   stampKind,
   setStampKind,
   onImageUpload,
@@ -282,7 +294,7 @@ export const Toolbar: React.FC<ToolbarProps> = ({
 
           {/* Shapes dropdown */}
           <button
-            onClick={(e) => toggleMenu('shape', 176, e)}
+            onClick={(e) => toggleMenu('shape', 224, e)}
             title="Shape tools"
             className={toolCls('ellipse')}
           >
@@ -370,7 +382,7 @@ export const Toolbar: React.FC<ToolbarProps> = ({
 
       {openMenu === 'shape' && (
         <div
-          className="fixed z-50 w-44 bg-white border border-neutral-200 rounded-xl shadow-lg py-1 text-xs"
+          className="fixed z-50 w-56 bg-white border border-neutral-200 rounded-xl shadow-lg py-1 text-xs"
           style={{ left: menuPos.left, top: menuPos.top }}
         >
           {(
@@ -397,6 +409,46 @@ export const Toolbar: React.FC<ToolbarProps> = ({
               <Icon className="w-4 h-4" /> {label}
             </button>
           ))}
+          <div className="my-1 border-t border-neutral-100" />
+          <div className="px-3 py-2">
+            <label className="flex items-center gap-2 font-medium text-neutral-700 cursor-pointer">
+              <input
+                type="checkbox"
+                checked={shapeFillEnabled}
+                onChange={(e) => setShapeFillEnabled(e.target.checked)}
+                className="w-3.5 h-3.5 accent-emerald-600"
+              />
+              Fill shape
+            </label>
+            {shapeFillEnabled && (
+              <div className="mt-2 flex items-center gap-2">
+                <input
+                  type="color"
+                  value={shapeFillColor}
+                  onChange={(e) => setShapeFillColor(e.target.value)}
+                  onClick={(e) => e.stopPropagation()}
+                  className="w-7 h-7 p-0 border border-neutral-200 rounded cursor-pointer bg-white"
+                  title="Shape fill color"
+                />
+                <input
+                  type="range"
+                  min={10}
+                  max={100}
+                  value={Math.round(shapeFillOpacity * 100)}
+                  onChange={(e) => setShapeFillOpacity(Number(e.target.value) / 100)}
+                  onClick={(e) => e.stopPropagation()}
+                  className="flex-1 accent-emerald-600"
+                  title={`Fill opacity ${Math.round(shapeFillOpacity * 100)}%`}
+                />
+                <span className="w-9 text-right tabular-nums text-neutral-500">
+                  {Math.round(shapeFillOpacity * 100)}%
+                </span>
+              </div>
+            )}
+            <p className="mt-1.5 text-[10px] leading-snug text-neutral-400">
+              Applies to new ellipses and rectangles (not arrows).
+            </p>
+          </div>
         </div>
       )}
 

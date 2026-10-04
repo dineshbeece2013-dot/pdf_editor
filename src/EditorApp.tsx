@@ -80,6 +80,12 @@ export function EditorApp() {
   const [stampKind, setStampKind] = useState<StampKind>('check');
   const [pendingImage, setPendingImage] = useState<{ dataUrl: string; w: number; h: number } | null>(null);
 
+  // Closed-shape fill (ellipse / rectangle): whether new shapes get a
+  // translucent fill, which color it uses, and how opaque it is.
+  const [shapeFillEnabled, setShapeFillEnabled] = useState(false);
+  const [shapeFillColor, setShapeFillColor] = useState('#fde047');
+  const [shapeFillOpacity, setShapeFillOpacity] = useState(0.35);
+
   // Per-tool colors picked from the toolbar palette — applied when new text,
   // pencil strokes, highlights and shapes are created.
   const [toolColors, setToolColors] = useState<ToolColors>({
@@ -399,6 +405,12 @@ export function EditorApp() {
         canPaste={hasClipboard}
         shapeKind={shapeKind}
         setShapeKind={setShapeKind}
+        shapeFillEnabled={shapeFillEnabled}
+        setShapeFillEnabled={setShapeFillEnabled}
+        shapeFillColor={shapeFillColor}
+        setShapeFillColor={setShapeFillColor}
+        shapeFillOpacity={shapeFillOpacity}
+        setShapeFillOpacity={setShapeFillOpacity}
         stampKind={stampKind}
         setStampKind={setStampKind}
         onImageUpload={handleImageUpload}
@@ -444,6 +456,9 @@ export function EditorApp() {
           onAddStamp={handleAddStamp}
           onEraseItems={handleEraseItems}
           shapeKind={shapeKind}
+          shapeFillEnabled={shapeFillEnabled}
+          shapeFillColor={shapeFillColor}
+          shapeFillOpacity={shapeFillOpacity}
           stampKind={stampKind}
           pendingImage={pendingImage}
           onClearPendingImage={() => setPendingImage(null)}

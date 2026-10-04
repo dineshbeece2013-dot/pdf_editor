@@ -32,7 +32,6 @@ export interface PdfViewerProps {
   onTotalPagesLoaded: (total: number) => void;
   textOverlays: EditedTextOverlay[];
   onAddTextOverlay: (overlay: EditedTextOverlay) => void;
-  /** Live patch from the text-box resize handle (pushFirst snapshots for undo). */
   onUpdateTextOverlay: (id: string, patch: Partial<EditedTextOverlay>, pushFirst?: boolean) => void;
   cropSettings: Record<number, PageCropSetting>;
   onApplyCrop: (crop: PageCropSetting) => void;
@@ -59,6 +58,9 @@ export interface PdfViewerProps {
   onAddStamp: (st: StampOverlay) => void;
   onEraseItems: (ids: string[], isFirstOfStroke: boolean) => void;
   shapeKind: ShapeKind;
+  shapeFillEnabled: boolean;
+  shapeFillColor: string;
+  shapeFillOpacity: number;
   stampKind: StampKind;
   pendingImage: { dataUrl: string; w: number; h: number } | null;
   onClearPendingImage: () => void;
@@ -101,6 +103,9 @@ export const PdfViewer: React.FC<PdfViewerProps> = ({
   onAddStamp,
   onEraseItems,
   shapeKind,
+  shapeFillEnabled,
+  shapeFillColor,
+  shapeFillOpacity,
   stampKind,
   pendingImage,
   onClearPendingImage,
@@ -659,6 +664,9 @@ export const PdfViewer: React.FC<PdfViewerProps> = ({
           ],
           color: toolColors.shape,
           strokeWidth: 2,
+          // Filled interior for closed shapes; arrows always stay outline-only.
+          fillColor: shapeFillEnabled && shapeKind !== 'arrow' ? shapeFillColor : undefined,
+          fillOpacity: shapeFillEnabled && shapeKind !== 'arrow' ? shapeFillOpacity : undefined,
         });
       }
       setShapeStart(null);
@@ -779,6 +787,24 @@ export const PdfViewer: React.FC<PdfViewerProps> = ({
       if (inBox(pageTransform(ov.pdfX, ov.pdfY, ov.pdfWidth, ov.pdfHeight))) hits.push(ov.id);
     return hits;
   };
+  // A detected text line already masked by an edited overlay must not offer
+  // its own "Edit" hotspot again: clicking the rendered overlay re-opens the
+  // editor, and leaving the original hotspot live would let a second edit
+  // stack a duplicate overlay on top of the first.
+  const isOriginalCovered = (item: DetectedTextItem) => {
+    const cx = item.pdfX + item.pdfWidth / 2;
+    const cy = item.pdfY + item.pdfHeight / 2;
+    return pageOverlays.some(
+      (o) =>
+        o.coverRect &&
+        cx >= o.coverRect.pdfX &&
+        cx <= o.coverRect.pdfX + o.coverRect.pdfWidth &&
+        cy >= o.coverRect.pdfY &&
+        cy <= o.coverRect.pdfY + o.coverRect.pdfHeight,
+    );
+  };
+
+
 
   return (
     <div className="flex-1 overflow-auto bg-neutral-200/70 p-4 sm:p-8 lg:p-12 flex justify-center items-start">
@@ -841,6 +867,8 @@ export const PdfViewer: React.FC<PdfViewerProps> = ({
           const box = pageTransform(sh.pdfX, sh.pdfY, sh.pdfWidth, sh.pdfHeight);
           const stroke = sh.color || '#059669';
           const sw = sh.strokeWidth || 2;
+          const fill = sh.fillColor ?? 'none';
+          const fillOpacity = sh.fillColor ? (sh.fillOpacity ?? 0.35) : 1;
           if (sh.kind === 'ellipse') {
             return (
               <svg key={sh.id} className="absolute top-0 left-0 pointer-events-none z-[5]" width={pageSize.width} height={pageSize.height}>
@@ -849,7 +877,8 @@ export const PdfViewer: React.FC<PdfViewerProps> = ({
                   cy={box.top + box.height / 2}
                   rx={Math.max(box.width / 2, 1)}
                   ry={Math.max(box.height / 2, 1)}
-                  fill="none"
+                  fill={fill}
+                  fillOpacity={fillOpacity}
                   stroke={stroke}
                   strokeWidth={sw}
                 />
@@ -859,7 +888,7 @@ export const PdfViewer: React.FC<PdfViewerProps> = ({
           if (sh.kind === 'rectangle') {
             return (
               <svg key={sh.id} className="absolute top-0 left-0 pointer-events-none z-[5]" width={pageSize.width} height={pageSize.height}>
-                <rect x={box.left} y={box.top} width={box.width} height={box.height} fill="none" stroke={stroke} strokeWidth={sw} />
+                <rect x={box.left} y={box.top} width={box.width} height={box.height} fill={fill} fillOpacity={fillOpacity} stroke={stroke} strokeWidth={sw} />
               </svg>
             );
           }
@@ -981,7 +1010,31 @@ export const PdfViewer: React.FC<PdfViewerProps> = ({
                 onClick={(e) => {
                   if (!interactive) return;
                   e.stopPropagation();
+                  // Select, then open the editor — every click on an overlay
+                  // opens it, so text can be edited a second, third, … time.
                   setSelectedOverlayId(overlay.id);
+                  setActiveEditingItem({
+                    id: `reedit-${overlay.id}`,
+                    str: overlay.text,
+                    x: box.left,
+                    y: box.top,
+                    width: box.width,
+                    height: Math.max(box.height, 20),
+                    fontFamily: overlay.fontFamily,
+                    originalFontName: overlay.fontFamily,
+                    // Overlay fontSize is in PDF points — TextEditInline shows
+                    // Math.round(item.fontSize), same as first-time edits.
+                    fontSize: overlay.fontSize,
+                    pdfX: overlay.pdfX,
+                    pdfY: overlay.pdfY,
+                    pdfWidth: overlay.pdfWidth,
+                    pdfHeight: overlay.pdfHeight,
+                    color: overlay.color,
+                    // Formatting of the saved overlay seeds the re-edit editor
+                    // (bold/color) so re-opening shows exactly what is drawn.
+                    editIsBold: overlay.isBold,
+                    editColor: overlay.color,
+                  });
                 }}
               >
                 <div className="w-full h-full overflow-hidden" style={{ lineHeight: 1.2 }}>
@@ -1027,26 +1080,28 @@ export const PdfViewer: React.FC<PdfViewerProps> = ({
         })}
 
         {currentTool === 'edit-text' &&
-          detectedTexts.map((item) => (
-            <div
-              key={item.id}
-              onClick={(e) => {
-                e.stopPropagation();
-                setActiveEditingItem(item);
-              }}
-              className="absolute z-10 border border-dashed border-emerald-400/50 hover:border-emerald-600 hover:bg-emerald-400/20 cursor-pointer rounded transition-all group"
-              style={{
-                left: item.x,
-                top: item.y,
-                width: item.width,
-                height: item.height,
-              }}
-            >
-              <div className="hidden group-hover:block absolute -top-5 left-0 bg-emerald-600 text-white text-[10px] px-1 py-0.5 rounded shadow pointer-events-none whitespace-nowrap z-20">
-                Edit ({item.originalFontName})
+          detectedTexts
+            .filter((item) => !isOriginalCovered(item))
+            .map((item) => (
+              <div
+                key={item.id}
+                onClick={(e) => {
+                  e.stopPropagation();
+                  setActiveEditingItem(item);
+                }}
+                className="absolute z-10 border border-dashed border-emerald-400/50 hover:border-emerald-600 hover:bg-emerald-400/20 cursor-pointer rounded transition-all group"
+                style={{
+                  left: item.x,
+                  top: item.y,
+                  width: item.width,
+                  height: item.height,
+                }}
+              >
+                <div className="hidden group-hover:block absolute -top-5 left-0 bg-emerald-600 text-white text-[10px] px-1 py-0.5 rounded shadow pointer-events-none whitespace-nowrap z-20">
+                  Edit ({item.originalFontName})
+                </div>
               </div>
-            </div>
-          ))}
+            ))}
 
         {activeEditingItem && (
           <TextEditInline
@@ -1058,7 +1113,29 @@ export const PdfViewer: React.FC<PdfViewerProps> = ({
             defaults={textDefaultsRef.current}
             onSave={(overlay) => {
               textDefaultsRef.current = { fontFamily: overlay.fontFamily, fontSize: overlay.fontSize };
-              onAddTextOverlay(overlay);
+              const id = activeEditingItem.id;
+              // Re-editing an existing overlay (id `reedit-<overlayId>`) updates
+              // it in place so the box can be edited over and over. Saving while
+              // the editor is still open for the same text replaces the pending
+              // state instead of stacking duplicates — resize/undo stay clean.
+              if (id.startsWith('reedit-')) {
+                onUpdateTextOverlay(
+                  id.slice('reedit-'.length),
+                  {
+                    text: overlay.text,
+                    fontSize: overlay.fontSize,
+                    fontFamily: overlay.fontFamily,
+                    color: overlay.color,
+                    isBold: overlay.isBold,
+                    pdfWidth: overlay.pdfWidth,
+                    pdfHeight: overlay.pdfHeight,
+                    pdfY: overlay.pdfY,
+                  },
+                  true,
+                );
+              } else {
+                onAddTextOverlay(overlay);
+              }
               setActiveEditingItem(null);
             }}
             onCancel={() => setActiveEditingItem(null)}
@@ -1106,7 +1183,13 @@ export const PdfViewer: React.FC<PdfViewerProps> = ({
               width: shapeBox.w,
               height: shapeBox.h,
               borderColor: toolColors.shape,
-              backgroundColor: toolColors.shape + '1a',
+              backgroundColor:
+                shapeFillEnabled && shapeKind !== 'arrow'
+                  ? shapeFillColor +
+                    Math.round(Math.min(1, Math.max(0, shapeFillOpacity)) * 255)
+                      .toString(16)
+                      .padStart(2, '0')
+                  : 'transparent',
             }}
           />
         )}

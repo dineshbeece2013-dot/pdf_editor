@@ -48,8 +48,8 @@ export const TextEditInline: React.FC<TextEditInlineProps> = ({
     // (e.g. raw "Calibri" or "ArialMT" select Calibri / Arial).
     return detectFontId(item.originalFontName || item.fontFamily);
   });
-  const [textColor, setTextColor] = useState(item.color ?? '#000000');
-  const [isBold, setIsBold] = useState(false);
+  const [textColor, setTextColor] = useState(item.editColor ?? item.color ?? '#000000');
+  const [isBold, setIsBold] = useState(item.editIsBold ?? false);
 
   const handleSave = () => {
     if (isNew && !text.trim()) {

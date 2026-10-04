@@ -30,6 +30,10 @@ export interface DetectedTextItem {
   isEdited?: boolean;
   newText?: string;
   isDeleted?: boolean;
+  /** Set when re-editing a saved overlay: its formatting seeds the editor. */
+  editOverlayId?: string;
+  editIsBold?: boolean;
+  editColor?: string;
 }
 
 export interface EditedTextOverlay {
@@ -127,6 +131,10 @@ export interface ShapeOverlay {
   points: { x: number; y: number }[];
   color: string;
   strokeWidth: number;
+  /** Fill color for closed shapes (ellipse / rectangle). Omitted = transparent. */
+  fillColor?: string;
+  /** Fill opacity 0–1 (defaults to 0.35 when fillColor is set). */
+  fillOpacity?: number;
 }
 
 /** Click-placed stamp annotation (check / cross / star). */

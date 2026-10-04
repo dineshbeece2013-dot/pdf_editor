@@ -202,6 +202,8 @@ export async function exportModifiedPdf(options: ExportPdfOptions): Promise<Uint
     if (!page) continue;
     const stroke = hexToRgb(sh.color || '#059669');
     const thickness = sh.strokeWidth || 2;
+    const fill = sh.fillColor ? hexToRgb(sh.fillColor) : undefined;
+    const fillOpacity = sh.fillColor ? (sh.fillOpacity ?? 0.35) : 0;
     if (sh.kind === 'ellipse') {
       page.drawEllipse({
         x: sh.pdfX + sh.pdfWidth / 2,
@@ -210,6 +212,7 @@ export async function exportModifiedPdf(options: ExportPdfOptions): Promise<Uint
         yScale: Math.max(sh.pdfHeight / 2, 0.5),
         borderColor: stroke,
         borderWidth: thickness,
+        ...(fill ? { color: fill, opacity: fillOpacity } : {}),
       });
     } else if (sh.kind === 'rectangle') {
       page.drawRectangle({
@@ -219,6 +222,7 @@ export async function exportModifiedPdf(options: ExportPdfOptions): Promise<Uint
         height: sh.pdfHeight,
         borderColor: stroke,
         borderWidth: thickness,
+        ...(fill ? { color: fill, opacity: fillOpacity } : {}),
       });
     } else if (sh.points.length === 2) {
       // arrow: shaft + two head strokes
