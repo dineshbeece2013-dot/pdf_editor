@@ -41,7 +41,7 @@ const HISTORY_LIMIT = 50;
 export function EditorApp() {
 
   // ----- Subscription / access control -----------------------------------
-  const { canEditResult, recordEdit, subscriptionStatus } = useAuth();
+  const { canEditResult, recordEdit, subscriptionStatus, user } = useAuth();
   const [showUpgrade, setShowUpgrade] = useState(false);
   const [showAdmin, setShowAdmin] = useState(false);
   const [upgradeReason, setUpgradeReason] = useState<string | undefined>(undefined);
@@ -431,7 +431,10 @@ export function EditorApp() {
     return () => window.removeEventListener('keydown', onKey);
   });
 
-  if (showAdmin) {
+  // The console is admin-only. The account menu already hides the entry point
+  // from everyone else; this second check makes sure a non-admin can never
+  // reach the dashboard even if the flag were set some other way.
+  if (showAdmin && user?.role === 'admin') {
     return <AdminDashboard onClose={() => setShowAdmin(false)} />;
   }
 

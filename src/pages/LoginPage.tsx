@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import { useAuth } from '../context/AuthContext';
 import { FileText, Lock, Mail, User as UserIcon, ArrowRight } from 'lucide-react';
+import { navigate } from '../services/router';
 
 export const LoginPage: React.FC = () => {
   const { login, register } = useAuth();
@@ -11,7 +12,7 @@ export const LoginPage: React.FC = () => {
   const [error, setError] = useState('');
 
   const inputWrap = 'relative';
-  const inputIcon = 'absolute left-3 top-1/2 -tranneutral-y-1/2 w-4 h-4 text-neutral-400 pointer-events-none';
+  const inputIcon = 'absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-neutral-400 pointer-events-none';
   const inputCls =
     'w-full pl-9 pr-3 py-2.5 text-sm border border-neutral-300 rounded-lg focus:border-emerald-500 focus:outline-none text-neutral-800 bg-white placeholder:text-neutral-400';
 
@@ -26,6 +27,8 @@ export const LoginPage: React.FC = () => {
         if (password.length < 6) throw new Error('Password must be at least 6 characters.');
         register(name, email, password);
       }
+      // Signed in — hand the user back to the editor, which is the landing page.
+      navigate('/');
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Something went wrong.');
     }
@@ -119,6 +122,18 @@ export const LoginPage: React.FC = () => {
                 <ArrowRight className="w-4 h-4" />
               </button>
             </form>
+
+            <p className="mt-4 text-center text-[11px] leading-relaxed text-neutral-400">
+              You can keep editing as a guest — an account is only needed to
+              subscribe to Pro.
+            </p>
+            <button
+              type="button"
+              onClick={() => navigate('/')}
+              className="mt-2 w-full text-center text-xs font-semibold text-neutral-500 hover:text-emerald-700 transition-colors"
+            >
+              Back to the editor
+            </button>
           </div>
         </div>
       </div>

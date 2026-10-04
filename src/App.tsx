@@ -1,13 +1,29 @@
+import { useEffect } from 'react';
 import { AuthProvider, useAuth } from './context/AuthContext';
-import { AUTH_ENABLED } from './config';
+import { ACCOUNTS_ENABLED } from './config';
 import { EditorApp } from './EditorApp';
 import { LoginPage } from './pages/LoginPage';
+import { usePathname } from './hooks/usePathname';
+import { LOGIN_PATH, navigate } from './services/router';
 
 function AppViews() {
+  const pathname = usePathname();
   const { user } = useAuth();
 
-  // Login gate — when enabled, users are gated behind login page.
-  if (AUTH_ENABLED && !user) return <LoginPage />;
+  // The editor is always the landing page and is never behind a login wall.
+  // /login is an opt-in page reached from the header's "Login / Sign Up"
+  // button, shown only while nobody is signed in.
+  const onLoginRoute = ACCOUNTS_ENABLED && pathname === LOGIN_PATH;
+
+  // Already signed in and sitting on /login (e.g. opened it in a new tab):
+  // send them back to the editor and tidy the URL up.
+  useEffect(() => {
+    if (onLoginRoute && user) navigate('/', { replace: true });
+  }, [onLoginRoute, user]);
+
+  if (onLoginRoute && !user) return <LoginPage />;
+
+  // Every other route — including unknown ones — is the editor.
   return <EditorApp />;
 }
 

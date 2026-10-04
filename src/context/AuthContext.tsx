@@ -1,5 +1,4 @@
 import React, { createContext, useContext, useMemo, useState } from 'react';
-import { AUTH_ENABLED } from '../config';
 import {
   type AppUser,
   clearSession,
@@ -23,6 +22,24 @@ import {
 // Idempotent — seeds the demo admin/user accounts on first load.
 seedUsers();
 
+type SubscriptionStatus = ReturnType<typeof getSubscriptionStatus>;
+type EditCheck = ReturnType<typeof canUserEdit>;
+
+// Someone who is not signed in is a guest. Guests keep the full editing access
+// the app has always had, so the editor behaves identically whether or not you
+// hold an account — the daily limit and the upgrade prompt only ever apply to
+// signed-in free accounts.
+const GUEST_SUBSCRIPTION_STATUS: SubscriptionStatus = {
+  isPro: false,
+  planName: null,
+  expiresAt: null,
+  daysRemaining: null,
+  canEdit: true,
+  editLimitReason: undefined,
+};
+
+const GUEST_EDIT_CHECK: EditCheck = { canEdit: true };
+
 interface AuthContextValue {
   user: AppUser | null;
   subscriptionStatus: ReturnType<typeof getSubscriptionStatus>;
@@ -45,23 +62,21 @@ export const useAuth = (): AuthContextValue => {
 };
 
 export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
+  // Nobody is signed in automatically: a first-time visitor starts as a guest.
+  // We only restore a session that was created by an explicit sign-in.
   const [user, setUser] = useState<AppUser | null>(() => {
-    if (!AUTH_ENABLED) {
-      const all = listUsers();
-      return all.find((u) => u.role === 'admin') ?? all[0] ?? null;
-    }
     const id = getSessionUserId();
     if (!id) return null;
     return listUsers().find((u) => u.id === id) ?? null;
   });
 
   const subscriptionStatus = useMemo(
-    () => (user ? getSubscriptionStatus(user) : { isPro: false, planName: null, expiresAt: null, daysRemaining: null, canEdit: !AUTH_ENABLED, editLimitReason: undefined }),
+    () => (user ? getSubscriptionStatus(user) : GUEST_SUBSCRIPTION_STATUS),
     [user]
   );
 
   const canEditResult = useMemo(
-    () => (user ? canUserEdit(user) : { canEdit: !AUTH_ENABLED }),
+    () => (user ? canUserEdit(user) : GUEST_EDIT_CHECK),
     [user]
   );
 
@@ -88,7 +103,6 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   };
 
   const logout = (): void => {
-    if (!AUTH_ENABLED) return;
     clearSession();
     setUser(null);
   };

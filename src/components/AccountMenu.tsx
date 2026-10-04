@@ -1,7 +1,9 @@
 import React, { useEffect, useRef, useState } from 'react';
-import { ChevronDown, Crown, LayoutDashboard, LogOut, User as UserIcon } from 'lucide-react';
+import { ChevronDown, Crown, LayoutDashboard, LogIn, LogOut, User as UserIcon } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
 import { formatExpiryDate } from '../services/subscription';
+import { ACCOUNTS_ENABLED } from '../config';
+import { LOGIN_PATH, navigate } from '../services/router';
 
 export interface AccountMenuProps {
   onOpenUpgrade: () => void;
@@ -9,9 +11,10 @@ export interface AccountMenuProps {
 }
 
 /**
- * Compact account control shown at the top-right of the editor. Surfaces the
- * signed-in user, their subscription state, the Pro upgrade entry point and —
- * for admins — the admin dashboard + sign out.
+ * Compact account control shown at the top-right of the editor. When nobody is
+ * signed in it renders the "Login / Sign Up" entry point that links to /login.
+ * Once signed in it surfaces the user, their subscription state, the Pro upgrade
+ * entry point and — for admins only — the admin dashboard + sign out.
  */
 export const AccountMenu: React.FC<AccountMenuProps> = ({ onOpenUpgrade, onOpenAdmin }) => {
   const { user, subscriptionStatus, logout } = useAuth();
@@ -27,7 +30,23 @@ export const AccountMenu: React.FC<AccountMenuProps> = ({ onOpenUpgrade, onOpenA
     return () => document.removeEventListener('mousedown', onDown);
   }, [open]);
 
-  if (!user) return null;
+  // Signed out: a guest. Offer the dedicated login page rather than showing any
+  // account chip. Styled to match the neighbouring header buttons and collapses
+  // to a short label on narrow screens.
+  if (!user) {
+    if (!ACCOUNTS_ENABLED) return null;
+    return (
+      <button
+        onClick={() => navigate(LOGIN_PATH)}
+        title="Sign in or create an account"
+        className="flex items-center gap-1.5 px-2.5 sm:px-3 py-2 rounded-lg border border-neutral-200 text-neutral-700 hover:bg-neutral-100 text-xs font-semibold"
+      >
+        <LogIn className="w-4 h-4" />
+        <span className="hidden sm:inline">Login / Sign Up</span>
+        <span className="sm:hidden">Login</span>
+      </button>
+    );
+  }
 
   const initial = (user.name || user.email || '?').trim().charAt(0).toUpperCase();
   const isAdmin = user.role === 'admin';
