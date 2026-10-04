@@ -18,7 +18,7 @@ import { Toolbar } from './components/Toolbar';
 import { PdfViewer } from './components/PdfViewer';
 import { SignaturePadModal } from './components/SignaturePadModal';
 import { createSamplePdf, exportModifiedPdf } from './services/pdfExporter';
-import { ChevronLeft, ChevronRight, ZoomIn, ZoomOut } from 'lucide-react';
+import { ChevronDown, ChevronLeft, ChevronRight, ZoomIn, ZoomOut } from 'lucide-react';
 
 /** The undoable document state: everything that changes the exported PDF. */
 type DocState = {
@@ -39,7 +39,21 @@ export function EditorApp() {
   const [pdfBytes, setPdfBytes] = useState<Uint8Array | null>(null);
   const [currentPage, setCurrentPage] = useState(0);
   const [totalPages, setTotalPages] = useState(1);
+  // Zoom: 1.2 = 120% default view. Fit modes keep the scale fitted to the
+  // viewport (the viewer recomputes on resize / page / crop changes); any
+  // manual zoom clears the fit mode.
   const [scale, setScale] = useState(1.2);
+  const [fitMode, setFitMode] = useState<'page' | 'width' | null>(null);
+  const [zoomMenu, setZoomMenu] = useState(false);
+  const clampZoom = (s: number) => Math.min(4, Math.max(0.25, s));
+  const zoomBy = (factor: number) => {
+    setFitMode(null);
+    setScale((s) => clampZoom(s * factor));
+  };
+  const setManualScale = (s: number) => {
+    setFitMode(null);
+    setScale(clampZoom(s));
+  };
   const [currentTool, setTool] = useState<ToolType>('select');
 
   const [textOverlays, setTextOverlays] = useState<EditedTextOverlay[]>([]);
@@ -350,6 +364,17 @@ export function EditorApp() {
         e.preventDefault();
         handleRedo();
       }
+      // Zoom shortcuts: Ctrl/Cmd + '+'/'=' zoom in, '-' zoom out, '0' reset.
+      if (key === '+' || key === '=') {
+        e.preventDefault();
+        zoomBy(1.2);
+      } else if (key === '-') {
+        e.preventDefault();
+        zoomBy(1 / 1.2);
+      } else if (key === '0') {
+        e.preventDefault();
+        setManualScale(1);
+      }
     };
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
@@ -387,6 +412,9 @@ export function EditorApp() {
           pdfBytes={pdfBytes}
           currentPage={currentPage}
           scale={scale}
+          fitMode={fitMode}
+          onScaleChange={setScale}
+          onZoomBy={zoomBy}
           currentTool={currentTool}
           onTotalPagesLoaded={setTotalPages}
           textOverlays={textOverlays}
@@ -455,22 +483,85 @@ export function EditorApp() {
 
         <div className="shrink-0 flex items-center gap-0.5 bg-neutral-100 border border-neutral-200 rounded-lg p-0.5">
           <button
-            onClick={() => setScale(Math.max(0.6, scale - 0.2))}
+            onClick={() => zoomBy(1 / 1.2)}
             aria-label="Zoom out"
+            title="Zoom out (Ctrl+-)"
             className="p-1 text-neutral-600 hover:text-emerald-600"
           >
             <ZoomOut className="w-4 h-4" />
           </button>
+
+          <div className="relative">
+            <button
+              onClick={() => setZoomMenu((v) => !v)}
+              title="Zoom level — presets and fit modes"
+              className="flex items-center gap-0.5 px-1.5 font-semibold text-neutral-700 tabular-nums hover:text-emerald-600"
+            >
+              {Math.round(scale * 100)}%
+              <ChevronDown
+                className={`w-3 h-3 transition-transform ${zoomMenu ? 'rotate-180' : ''}`}
+              />
+            </button>
+
+            {zoomMenu && (
+              <>
+                <div
+                  className="fixed inset-0 z-40"
+                  onMouseDown={() => setZoomMenu(false)}
+                />
+                <div className="absolute bottom-full right-0 mb-1.5 z-50 w-32 py-1 bg-white border border-neutral-200 rounded-lg shadow-lg">
+                  <button
+                    onClick={() => {
+                      setFitMode('page');
+                      setZoomMenu(false);
+                    }}
+                    className={`w-full text-left px-3 py-1.5 hover:bg-emerald-50 hover:text-emerald-700 ${
+                      fitMode === 'page'
+                        ? 'text-emerald-600 font-semibold bg-emerald-50'
+                        : 'text-neutral-700'
+                    }`}
+                  >
+                    Fit page
+                  </button>
+                  <button
+                    onClick={() => {
+                      setFitMode('width');
+                      setZoomMenu(false);
+                    }}
+                    className={`w-full text-left px-3 py-1.5 hover:bg-emerald-50 hover:text-emerald-700 ${
+                      fitMode === 'width'
+                        ? 'text-emerald-600 font-semibold bg-emerald-50'
+                        : 'text-neutral-700'
+                    }`}
+                  >
+                    Fit width
+                  </button>
+                  <div className="my-1 border-t border-neutral-100" />
+                  {[50, 75, 100, 125, 150, 200, 250, 300].map((pct) => (
+                    <button
+                      key={pct}
+                      onClick={() => {
+                        setManualScale(pct / 100);
+                        setZoomMenu(false);
+                      }}
+                      className={`w-full text-left px-3 py-1 hover:bg-emerald-50 hover:text-emerald-700 ${
+                        !fitMode && Math.round(scale * 100) === pct
+                          ? 'text-emerald-600 font-semibold bg-emerald-50'
+                          : 'text-neutral-700'
+                      }`}
+                    >
+                      {pct}%
+                    </button>
+                  ))}
+                </div>
+              </>
+            )}
+          </div>
+
           <button
-            onClick={() => setScale(1)}
-            title="Reset zoom to 100%"
-            className="px-1.5 font-semibold text-neutral-700 tabular-nums hover:text-emerald-600"
-          >
-            {Math.round(scale * 100)}%
-          </button>
-          <button
-            onClick={() => setScale(Math.min(2.5, scale + 0.2))}
+            onClick={() => zoomBy(1.2)}
             aria-label="Zoom in"
+            title="Zoom in (Ctrl++)"
             className="p-1 text-neutral-600 hover:text-emerald-600"
           >
             <ZoomIn className="w-4 h-4" />

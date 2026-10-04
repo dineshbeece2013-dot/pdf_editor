@@ -22,6 +22,12 @@ export interface PdfViewerProps {
   pdfBytes: Uint8Array | null;
   currentPage: number;
   scale: number;
+  /** Fit mode from the app shell — while set, scale tracks the viewport. */
+  fitMode: 'page' | 'width' | null;
+  /** Raw setter used by the fit computation (does not clear fit mode). */
+  onScaleChange: (s: number) => void;
+  /** Manual zoom step (Ctrl+wheel) — clears fit mode upstream. */
+  onZoomBy: (factor: number) => void;
   currentTool: ToolType;
   onTotalPagesLoaded: (total: number) => void;
   textOverlays: EditedTextOverlay[];
@@ -63,6 +69,9 @@ export const PdfViewer: React.FC<PdfViewerProps> = ({
   pdfBytes,
   currentPage,
   scale,
+  fitMode,
+  onScaleChange,
+  onZoomBy,
   currentTool,
   onTotalPagesLoaded,
   textOverlays,
@@ -201,6 +210,49 @@ export const PdfViewer: React.FC<PdfViewerProps> = ({
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
   }, []);
+
+  // Fit page / fit width: keep the scale fitted to the available viewport.
+  // Window resize, page turns and crop changes all retrigger the fit; the
+  // epsilon guard prevents a set-scale -> re-render -> recompute loop.
+  useEffect(() => {
+    if (!fitMode) return;
+    const apply = () => {
+      const scroll = containerRef.current?.parentElement;
+      if (!scroll || !pageSize.pdfWidth) return;
+      const cs = getComputedStyle(scroll);
+      const padX = parseFloat(cs.paddingLeft) + parseFloat(cs.paddingRight);
+      const padY = parseFloat(cs.paddingTop) + parseFloat(cs.paddingBottom);
+      const availW = scroll.clientWidth - padX - 8;
+      const availH = scroll.clientHeight - padY - 8;
+      if (availW <= 0 || availH <= 0) return;
+      const crop = cropSettings[currentPage];
+      const fitW = crop ? crop.width : pageSize.pdfWidth;
+      const fitH = crop ? crop.height : pageSize.pdfHeight;
+      const next =
+        fitMode === 'width'
+          ? availW / fitW
+          : Math.min(availW / fitW, availH / fitH);
+      const clamped = Math.min(4, Math.max(0.25, next));
+      if (Math.abs(clamped - scale) > 0.004) onScaleChange(clamped);
+    };
+    apply();
+    window.addEventListener('resize', apply);
+    return () => window.removeEventListener('resize', apply);
+  }, [fitMode, pageSize, cropSettings, currentPage, scale, onScaleChange]);
+
+  // Ctrl/Cmd + wheel zooms the page (plain wheel keeps scrolling). Registered
+  // natively with passive: false so the browser's own page zoom is suppressed.
+  useEffect(() => {
+    const el = containerRef.current;
+    if (!el) return;
+    const onWheel = (e: WheelEvent) => {
+      if (!e.ctrlKey && !e.metaKey) return;
+      e.preventDefault();
+      onZoomBy(e.deltaY < 0 ? 1.1 : 1 / 1.1);
+    };
+    el.addEventListener('wheel', onWheel, { passive: false });
+    return () => el.removeEventListener('wheel', onWheel);
+  }, [onZoomBy]);
 
   // Copy: rasterize the committed selection straight out of the rendered page
   // canvas. The canvas shows the full page shifted by the crop offset, so the
