@@ -1,9 +1,10 @@
 /**
  * Configuration switches and settings for the PDF Editor Pro application.
  *
- * AUTH_ENABLED: when true, users are gated behind the login page. They must
- * sign in (or sign up) before they can use the editor. The admin dashboard
- * is accessible via the admin's user menu when AUTH_ENABLED is true.
+ * AUTH_ENABLED: while false, the editor opens straight away as the default
+ * landing page with a built-in session (the seeded admin), so users can start
+ * editing immediately — no login wall. Flip it to `true` to gate the app behind
+ * the login page and require sign-in before editing.
  *
  * RAZORPAY: payment gateway configuration for subscription purchases.
  * These values are safe to expose on the client because the publishable
@@ -12,7 +13,7 @@
  * display and configure. In production, store the secret in an environment
  * variable / server-side configuration.
  */
-export const AUTH_ENABLED = true;
+export const AUTH_ENABLED = false;
 
 export const RAZORPAY = {
   keyId: 'rzp_test_1_placeholder_key_id',

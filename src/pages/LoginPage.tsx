@@ -31,13 +31,6 @@ export const LoginPage: React.FC = () => {
     }
   };
 
-  const fillDemo = (e: string, p: string) => {
-    setMode('login');
-    setEmail(e);
-    setPassword(p);
-    setError('');
-  };
-
   const tabCls = (active: boolean) =>
     'flex-1 py-1.5 text-xs font-semibold rounded-md transition-colors ' +
     (active ? 'bg-white text-emerald-700 shadow-sm' : 'text-neutral-500 hover:text-neutral-700');
@@ -126,36 +119,6 @@ export const LoginPage: React.FC = () => {
                 <ArrowRight className="w-4 h-4" />
               </button>
             </form>
-            <div className="mt-5 pt-4 border-t border-neutral-100">
-              <p className="text-[11px] font-semibold text-neutral-400 uppercase tracking-wide mb-2">
-                Demo accounts
-              </p>
-              <div className="flex flex-col gap-1.5">
-                <button
-                  type="button"
-                  onClick={() => fillDemo('admin@pdfpro.com', 'admin123')}
-                  className="flex items-center justify-between px-3 py-2 bg-neutral-50 hover:bg-emerald-50 border border-neutral-200 rounded-lg text-xs text-neutral-600 transition-colors"
-                >
-                  <span>
-                    <b>Admin</b> — admin@pdfpro.com / admin123
-                  </span>
-                  <span className="text-emerald-600 font-semibold">Use</span>
-                </button>
-                <button
-                  type="button"
-                  onClick={() => fillDemo('user@pdfpro.com', 'user123')}
-                  className="flex items-center justify-between px-3 py-2 bg-neutral-50 hover:bg-emerald-50 border border-neutral-200 rounded-lg text-xs text-neutral-600 transition-colors"
-                >
-                  <span>
-                    <b>User</b> — user@pdfpro.com / user123
-                  </span>
-                  <span className="text-emerald-600 font-semibold">Use</span>
-                </button>
-              </div>
-              <p className="text-[10px] text-neutral-400 mt-3 leading-relaxed">
-                Demo auth is stored locally in your browser — connect a real API for production use.
-              </p>
-            </div>
           </div>
         </div>
       </div>
