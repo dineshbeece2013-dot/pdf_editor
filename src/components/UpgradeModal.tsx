@@ -117,26 +117,6 @@ export const UpgradeModal: React.FC<UpgradeModalProps> = ({ isOpen, onClose, rea
     }
   };
 
-  /**
-   * Sandbox shortcut so the flow is testable without live keys. It is refused
-   * by the server when demo payments are disabled (always, in production).
-   */
-  const handleDemo = async () => {
-    if (!user) return;
-    setStatus('processing');
-    setMessage('');
-    try {
-      const res = await subscriptionApi.demo(selected);
-      if (res.user) applyServerUser(res.user);
-      setStatus('success');
-      setMessage('');
-      onSubscribed?.(selected);
-    } catch (err) {
-      setStatus('error');
-      setMessage(checkoutError(err));
-    }
-  };
-
   const reset = () => {
     setStatus('idle');
     setMessage('');
@@ -251,20 +231,12 @@ export const UpgradeModal: React.FC<UpgradeModalProps> = ({ isOpen, onClose, rea
                 </>
               )}
             </button>
-
-            <button
-              onClick={handleDemo}
-              disabled={status === 'processing'}
-              className="w-full py-2 text-xs font-semibold text-neutral-500 hover:text-emerald-600"
-            >
-              Complete demo payment (sandbox — no real charge)
-            </button>
           </div>
 
           {gatewayReady === false && (
             <p className="text-[10px] text-neutral-400 leading-relaxed">
               Razorpay is not configured on this server. An administrator can add test keys in the admin
-              dashboard → Razorpay, or use the demo payment to try the flow.
+              dashboard → Razorpay.
             </p>
           )}
         </div>
