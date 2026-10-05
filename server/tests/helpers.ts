@@ -38,14 +38,23 @@ export class TestClient {
   }
 
   async request<T = any>(method: string, path: string, body?: unknown): Promise<ApiResponse<T>> {
+    return this.send<T>(method, path, body === undefined ? undefined : JSON.stringify(body));
+  }
+
+  /** POST a body byte-for-byte, so tests can send malformed JSON. */
+  postRaw<T = any>(path: string, body: string): Promise<ApiResponse<T>> {
+    return this.send<T>('POST', path, body);
+  }
+
+  private async send<T = any>(method: string, path: string, raw?: string): Promise<ApiResponse<T>> {
     const headers: Record<string, string> = { origin: this.origin };
-    if (body !== undefined) headers['content-type'] = 'application/json';
+    if (raw !== undefined) headers['content-type'] = 'application/json';
     if (this.cookie) headers.cookie = this.cookie;
 
     const res = await fetch(this.base + path, {
       method,
       headers,
-      body: body === undefined ? undefined : JSON.stringify(body),
+      body: raw,
     });
 
     const setCookies = res.headers.getSetCookie();

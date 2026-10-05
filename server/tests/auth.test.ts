@@ -217,6 +217,21 @@ describe('login and sessions', () => {
     expect(res.body.error).toMatch(/at least 8/);
   });
 });
+describe('malformed request bodies', () => {
+  it('answers 400 instead of 500 when the JSON body cannot be parsed', async () => {
+    const res = await h.client().postRaw('/api/auth/login', '{email:user@pdfpro.com,}');
+    expect(res.status).toBe(400);
+    expect(res.body.error).toBe('Malformed request body.');
+  });
+
+  it('does not echo the rejected body back to the client', async () => {
+    const secretish = '{oops:"super-secret-value"}';
+    const res = await h.client().postRaw('/api/auth/login', secretish);
+    expect(res.status).toBe(400);
+    expect(JSON.stringify(res.body)).not.toContain('super-secret-value');
+  });
+});
+
 describe('multiple allowed origins', () => {
   // A 401 "invalid credentials" proves the request got past the CSRF guard;
   // a 403 "Cross-origin request blocked" means the guard stopped it.
