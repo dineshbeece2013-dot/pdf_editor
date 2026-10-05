@@ -3,6 +3,5 @@ User-agent: *
 # machine-only, or would only dilute the site's index.
 Disallow: /api/
 Disallow: /admin
-Disallow: /login
 
 Sitemap: https://digitalpdfeditor.com/sitemap.xml

@@ -1,10 +1,15 @@
 import React, { useEffect } from 'react';
 import { Check } from 'lucide-react';
+import { navigate } from '../services/router';
+import { LEGAL_LINKS } from './LegalPage';
 import {
+  CONTACT_EMAIL,
   FAQ,
   FEATURES,
   HERO_HEADING,
   HERO_SUBHEADING,
+  OPERATOR_NAME,
+  POLICY_REVISED,
   PRICING,
   SITE_TITLE,
 } from '../seo/content';
@@ -90,6 +95,38 @@ export const SeoSections: React.FC = () => {
           </ul>
         </div>
       </section>
+
+      {/*
+        The legal links live here rather than in a floating bar: a site that
+        takes payment and stores email addresses is expected to publish how it
+        handles data and how to reach a human, and crawlers follow links in the
+        page body.
+      */}
+      <footer className="border-t border-neutral-200 bg-white">
+        <div className="mx-auto max-w-5xl px-4 sm:px-6 py-10">
+          <nav aria-label="Legal" className="flex flex-wrap gap-x-6 gap-y-2">
+            {LEGAL_LINKS.map((link) => (
+              <button
+                key={link.path}
+                type="button"
+                onClick={() => navigate(link.path)}
+                className="text-xs font-semibold text-neutral-500 hover:text-emerald-700 transition-colors"
+              >
+                {link.label}
+              </button>
+            ))}
+            <a
+              href={`mailto:${CONTACT_EMAIL}`}
+              className="text-xs font-semibold text-neutral-500 hover:text-emerald-700 transition-colors"
+            >
+              {CONTACT_EMAIL}
+            </a>
+          </nav>
+          <p className="mt-4 text-xs text-neutral-400">
+            &copy; {POLICY_REVISED.slice(0, 4)} {OPERATOR_NAME}
+          </p>
+        </div>
+      </footer>
     </div>
   );
 };

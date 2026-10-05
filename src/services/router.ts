@@ -6,6 +6,15 @@
 /** Path of the dedicated login / sign up page. */
 export const LOGIN_PATH = '/login';
 
+/**
+ * Static informational pages, mapped to the component that renders each.
+ *
+ * These exist for trust and search rather than function: a site that takes
+ * payment and stores email addresses is expected to publish how it handles
+ * data, what its terms are, how refunds work, and how to reach a human.
+ */
+export const STATIC_PATHS = ['/privacy', '/terms', '/refund-policy', '/contact'] as const;
+
 /** Current URL path, normalised to always start with a single "/". */
 export function getPathname(): string {
   const path = window.location.pathname || '/';
