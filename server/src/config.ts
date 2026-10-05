@@ -23,7 +23,16 @@ export interface AppConfig {
    * internet. Only widen this if something else on the host must call it.
    */
   host: string;
-  appOrigin: string;
+  /**
+   * Origins allowed to make state-changing (non-GET) API calls, e.g.
+   * `https://example.com,https://www.example.com`.
+   *
+   * Only these may POST, so a page on any other site cannot drive the API with
+   * a visitor's cookies. Note that browsers scope cookies per host, so a
+   * visitor signed in on the apex is *not* signed in on www — they sign in
+   * once per hostname.
+   */
+  appOrigins: string[];
   databaseUrl: string;
   /** Enables TLS to PostgreSQL — required by most managed providers. */
   databaseSsl: boolean;
@@ -82,6 +91,11 @@ function devSecret(label: string): string {
   return out.slice(0, 64);
 }
 
+/** Split a comma-separated origin list, normalised and de-duplicated. */
+function parseOrigins(raw: string): string[] {
+  return [...new Set(raw.split(',').map((o) => o.trim().toLowerCase()).filter(Boolean))];
+}
+
 export function loadConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
   const rawEnv = readString(env, 'NODE_ENV', 'development');
   const nodeEnv: NodeEnv =
@@ -120,7 +134,7 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
     isProd,
     port: readInt(env, 'PORT', 4000),
     host: readString(env, 'HOST', '127.0.0.1'),
-    appOrigin: readString(env, 'APP_ORIGIN', 'http://localhost:5173'),
+    appOrigins: parseOrigins(readString(env, 'APP_ORIGIN', 'http://localhost:5173')),
     databaseUrl,
     databaseSsl: readBool(env, 'DATABASE_SSL', false),
     sessionSecret,

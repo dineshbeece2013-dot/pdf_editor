@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
-import { createHarness, seedAdmin, type Harness } from './helpers.js';
+import { createHarness, seedAdmin, TestClient, type Harness } from './helpers.js';
 
 let h: Harness;
 
@@ -215,5 +215,45 @@ describe('login and sessions', () => {
     });
     expect(res.status).toBe(400);
     expect(res.body.error).toMatch(/at least 8/);
+  });
+});
+describe('multiple allowed origins', () => {
+  // A 401 "invalid credentials" proves the request got past the CSRF guard;
+  // a 403 "Cross-origin request blocked" means the guard stopped it.
+  const CREDS = { email: 'nobody@example.com', password: 'whatever-1' };
+
+  it('accepts every listed origin, case-insensitively', async () => {
+    const multi = await createHarness({ APP_ORIGIN: 'https://apex.example,https://www.apex.example' });
+    try {
+      for (const origin of ['https://apex.example', 'https://www.apex.example', 'https://APEX.example']) {
+        const res = await new TestClient(multi.base, origin).post('/api/auth/login', CREDS);
+        expect(res.status, `origin ${origin} should be allowed`).toBe(401);
+      }
+    } finally {
+      await multi.close();
+    }
+  });
+
+  it('still refuses an origin that is not listed', async () => {
+    const multi = await createHarness({ APP_ORIGIN: 'https://apex.example,https://www.apex.example' });
+    try {
+      const res = await new TestClient(multi.base, 'https://evil.example').post('/api/auth/login', CREDS);
+      expect(res.status).toBe(403);
+      expect(res.body.error).toMatch(/Cross-origin/);
+    } finally {
+      await multi.close();
+    }
+  });
+
+  it('does not treat a different scheme, port or subdomain as the same origin', async () => {
+    const multi = await createHarness({ APP_ORIGIN: 'https://apex.example,https://www.apex.example' });
+    try {
+      for (const origin of ['http://apex.example', 'https://apex.example:8443', 'https://sub.apex.example']) {
+        const res = await new TestClient(multi.base, origin).post('/api/auth/login', CREDS);
+        expect(res.status, `origin ${origin} must be blocked`).toBe(403);
+      }
+    } finally {
+      await multi.close();
+    }
   });
 });

@@ -13,8 +13,15 @@ import type { NextFunction, Request, Response } from 'express';
 
 const SAFE_METHODS = new Set(['GET', 'HEAD', 'OPTIONS']);
 
-export function originGuard(appOrigin: string) {
-  const allowed = new Set([appOrigin]);
+/**
+ * Accepts one origin or several. Origins are compared case-insensitively and
+ * must match exactly (scheme + host + port) — no wildcards, because a
+ * wildcard would reintroduce the cross-site risk this guard exists to stop.
+ */
+export function originGuard(appOrigins: string | string[]) {
+  const allowed = new Set(
+    (Array.isArray(appOrigins) ? appOrigins : [appOrigins]).map((o) => o.trim().toLowerCase()),
+  );
 
   return function guard(req: Request, res: Response, next: NextFunction): void {
     if (SAFE_METHODS.has(req.method)) {
@@ -28,7 +35,10 @@ export function originGuard(appOrigin: string) {
       return;
     }
 
-    const origin = req.get('origin');
+    // The browser sends `Origin`, so normalise its scheme/host case the same
+    // way as the configured list. Host is case-insensitive per RFC 3986;
+    // scheme and port are not, so they still have to match exactly.
+    const origin = req.get('origin')?.trim().toLowerCase();
     if (origin && !allowed.has(origin)) {
       res.status(403).json({ error: 'Cross-origin request blocked.' });
       return;

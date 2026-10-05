@@ -126,7 +126,7 @@ export async function createHarness(overrides: Record<string, string> = {}): Pro
     db,
     config,
     base,
-    client: () => new TestClient(base, config.appOrigin),
+    client: () => new TestClient(base, config.appOrigins[0]),
     close: async () => {
       await new Promise<void>((resolve) => server.close(() => resolve()));
       await pool.end();

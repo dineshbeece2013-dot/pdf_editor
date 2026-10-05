@@ -35,7 +35,7 @@ export function createApp({ config, db, pool }: AppDeps): Express {
 
   app.use(helmet());
   app.use(express.json({ limit: '64kb' }));
-  app.use(originGuard(config.appOrigin));
+  app.use(originGuard(config.appOrigins));
 
   // Session cookie -> httpOnly, sameSite=lax, secure in production.
   app.use(createSessionMiddleware(config, pool));
