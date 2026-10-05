@@ -1,0 +1,8 @@
+User-agent: *
+# Everything a visitor needs is public. These paths are either private,
+# machine-only, or would only dilute the site's index.
+Disallow: /api/
+Disallow: /admin
+Disallow: /login
+
+Sitemap: https://digitalpdfeditor.com/sitemap.xml

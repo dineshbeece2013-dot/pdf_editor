@@ -4,7 +4,30 @@
     <meta charset="UTF-8" />
     <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>PDF Editor</title>
+
+    <!--
+      These are the defaults so a dev build and a crawler that never runs
+      JavaScript still see a described page. `scripts/inject-seo.mjs` rewrites
+      them at build time from src/seo/content.ts, which is the single source of
+      truth — edit the copy there, not here.
+    -->
+    <title>Free Online PDF Editor — Edit, Sign &amp; Annotate PDFs</title>
+    <meta
+      name="description"
+      content="Edit PDFs free in your browser. Add text, images, shapes and signatures, highlight, redact, crop and annotate. No sign-up, no upload to a server, and one free edit every day."
+    />
+    <link rel="canonical" href="https://digitalpdfeditor.com/" />
+    <meta name="robots" content="index, follow, max-image-preview:large" />
+
+    <meta property="og:type" content="website" />
+    <meta property="og:site_name" content="PDF Editor Pro" />
+    <meta property="og:title" content="Free Online PDF Editor — Edit, Sign &amp; Annotate PDFs" />
+    <meta
+      property="og:description"
+      content="Edit PDFs free in your browser. Add text, images, shapes and signatures, highlight, redact, crop and annotate. No sign-up and no file leaves your device."
+    />
+    <meta property="og:url" content="https://digitalpdfeditor.com/" />
+    <meta name="twitter:card" content="summary" />
   </head>
   <body>
     <div id="root"></div>

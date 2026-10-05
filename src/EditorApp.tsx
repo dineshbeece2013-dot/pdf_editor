@@ -23,6 +23,7 @@ import { useAuth } from './context/AuthContext';
 import { AccountMenu } from './components/AccountMenu';
 import { UpgradeModal } from './components/UpgradeModal';
 import { ChangePasswordModal } from './components/ChangePasswordModal';
+import { SeoSections } from './components/SeoSections';
 import { AdminDashboard } from './components/AdminDashboard';
 
 /** The undoable document state: everything that changes the exported PDF. */
@@ -441,7 +442,14 @@ export function EditorApp() {
   }
 
   return (
-    <div className="flex flex-col h-screen w-screen overflow-hidden bg-neutral-100 font-sans">
+    <div className="flex flex-col min-h-screen w-screen bg-neutral-100 font-sans">
+      {/*
+        The editor is a fixed-height app surface. The SEO sections sit below it
+        in normal document flow so the page still scrolls normally, and they are
+        genuine content rather than hidden text — search engines penalise text
+        that exists only to game rankings. See src/seo/content.ts.
+      */}
+      <div className="flex flex-col h-screen w-screen overflow-hidden">
       <Toolbar
         currentTool={currentTool}
         setTool={setTool}
@@ -661,6 +669,9 @@ export function EditorApp() {
         isOpen={showChangePassword}
         onClose={() => setShowChangePassword(false)}
       />
+      </div>
+
+      <SeoSections />
     </div>
   );
 }
