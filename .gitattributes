@@ -1,0 +1,5 @@
+# Site-verification files are served to crawlers exactly as the provider issued
+# them. Pin them as binary so Git's line-ending conversion cannot alter a byte
+# and invalidate a verification already set up in Bing/Google.
+BingSiteAuth.xml   -text
+google*.html       -text
