@@ -1,4 +1,5 @@
 import { api } from './api';
+import type { PlanSummary } from './subscription';
 import type { AppUser } from './localAuth';
 
 /**
@@ -46,7 +47,14 @@ export interface PaymentProof {
 }
 
 export const subscriptionApi = {
-  plans: () => api.get<{ gateway: PublicGatewayConfig }>('/subscription/plans'),
+  /**
+   * The server's own catalogue, with the gateway config alongside it.
+   *
+   * The returned `plans` are authoritative: the UI shows these prices rather
+   * than a bundled copy, so what a customer reads is what they are charged.
+   */
+  plans: () =>
+    api.get<{ plans: PlanSummary[]; gateway: PublicGatewayConfig }>('/subscription/plans'),
   createOrder: (planId: string) => api.post<CreatedOrder>('/subscription/order', { planId }),
   verify: (proof: PaymentProof) =>
     api.post<{ user: AppUser | null; replay: boolean }>('/subscription/verify', proof),

@@ -18,6 +18,11 @@
  */
 export const ACCOUNTS_ENABLED = true;
 
-/** Available subscription plans (mirror of the server's catalogue, display only). */
-export const AVAILABLE_PLANS = ['pro-weekly', 'pro-monthly'] as const;
+/**
+ * Plan ids the UI offers, in display order.
+ *
+ * Structural only — prices, currency and durations come from the server via
+ * `GET /api/subscription/plans`, so there is nothing to keep in sync here.
+ */
+export const AVAILABLE_PLANS = ['pro-daily', 'pro-monthly'] as const;
 export type AvailablePlan = (typeof AVAILABLE_PLANS)[number];

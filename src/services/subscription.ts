@@ -1,26 +1,49 @@
 import type { AppUser } from './localAuth';
 
-/** Subscription plan definitions */
-export const SUBSCRIPTION_PLANS = {
-  'pro-weekly': {
-    id: 'pro-weekly',
-    name: '$1 / 7 days',
-    price: 1,
-    currency: 'USD' as const,
-    durationDays: 7,
-    description: 'Unlimited PDF editing for 7 days',
-  },
-  'pro-monthly': {
-    id: 'pro-monthly',
-    name: '$3 / month',
-    price: 3,
-    currency: 'USD' as const,
-    durationDays: 30,
-    description: 'Unlimited PDF editing for 30 days',
-  },
+/**
+ * A plan as the server prices it, returned by GET /api/subscription/plans.
+ *
+ * Money values are deliberately NOT hardcoded in this file. The browser never
+ * decides what a plan costs, so it must not advertise a cost either — the
+ * number rendered here is the exact number the server charges. Keeping a
+ * second copy of the price in the bundle is how a UI ends up quoting a plan at
+ * a different price to the one on the invoice.
+ */
+export interface PlanSummary {
+  id: string;
+  name: string;
+  price: number;
+  currency: string;
+  durationDays: number;
+  description: string;
+}
+
+/** Short labels for plan ids, used where no amount needs to be shown. */
+export const PLAN_LABELS = {
+  'pro-daily': 'Daily',
+  'pro-monthly': 'Monthly',
 } as const;
 
-export type PlanId = keyof typeof SUBSCRIPTION_PLANS;
+export type PlanId = keyof typeof PLAN_LABELS;
+
+/** Display order in the upgrade dialog. */
+export const PLAN_ORDER: PlanId[] = ['pro-daily', 'pro-monthly'];
+
+/**
+ * A human label for a stored plan id.
+ *
+ * Falls back to the raw id for anything unrecognised, so a subscription bought
+ * under a retired plan still renders a name instead of "undefined".
+ */
+export function planLabel(id: string | null | undefined): string | null {
+  if (!id) return null;
+  return PLAN_LABELS[id as PlanId] ?? id;
+}
+
+/** Format an amount for display, e.g. { price: 99, currency: 'INR' } -> "₹99". */
+export function formatPrice(plan: Pick<PlanSummary, 'price' | 'currency'>): string {
+  return plan.currency === 'INR' ? `\u20b9${plan.price}` : `$${plan.price}`;
+}
 
 const FREE_EDITS_PER_DAY = 1;
 
@@ -102,32 +125,14 @@ export function recordUserEdit(user: AppUser): AppUser {
   };
 }
 
-/** Apply a subscription to a user. */
-export function applySubscription(user: AppUser, planId: PlanId): AppUser {
-  const plan = SUBSCRIPTION_PLANS[planId];
-  const now = Date.now();
-  const expiresAt = now + (plan.durationDays * 24 * 60 * 60 * 1000);
-  
-  return {
-    ...user,
-    plan: 'pro',
-    subscriptionPlan: planId,
-    subscriptionExpiresAt: expiresAt,
-    // Reset free edits on new subscription
-    freeEditsUsedToday: 0,
-    lastFreeEditDate: todayString(),
-  };
-}
-
-/** Cancel a user's subscription (revert to free tier). */
-export function cancelSubscription(user: AppUser): AppUser {
-  return {
-    ...user,
-    plan: 'free',
-    subscriptionPlan: null,
-    subscriptionExpiresAt: null,
-  };
-}
+/**
+ * Deliberately absent: a client-side `applySubscription`/`cancelSubscription`.
+ *
+ * An earlier localStorage build mutated the cached user to flip `plan` to 'pro'.
+ * Entitlements are now granted server-side and only after Razorpay's signature
+ * is verified, so a client-side helper would be both dead code and a way to
+ * fake access. Use the API instead (`subscriptionApi.verify` / `.cancel`).
+ */
 
 /** Get human-readable subscription status for UI. */
 export function getSubscriptionStatus(user: AppUser): {
@@ -152,11 +157,10 @@ export function getSubscriptionStatus(user: AppUser): {
   }
 
   if (isSubscriptionActive(user) && user.subscriptionPlan) {
-    const plan = SUBSCRIPTION_PLANS[user.subscriptionPlan as PlanId];
     const daysRemaining = Math.max(0, Math.ceil((user.subscriptionExpiresAt! - Date.now()) / (24 * 60 * 60 * 1000)));
     return {
       isPro: true,
-      planName: plan.name,
+      planName: planLabel(user.subscriptionPlan) ?? user.subscriptionPlan,
       expiresAt: user.subscriptionExpiresAt!,
       daysRemaining,
       canEdit: true,

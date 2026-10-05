@@ -34,7 +34,8 @@ async function configureGateway() {
   const res = await admin.put('/api/razorpay/config', {
     keyId: KEY_ID,
     keySecret: KEY_SECRET,
-    currency: 'USD',
+    // Must match the catalogue's currency, or order creation is refused.
+    currency: 'INR',
   });
   expect(res.status).toBe(200);
   return admin;
@@ -107,10 +108,30 @@ describe('subscription orders are priced server-side', () => {
     const res = await client.post('/api/subscription/order', { planId: 'pro-monthly' });
     expect(res.status).toBe(201);
     // The client cannot influence this number.
-    expect(res.body.amount).toBe(300);
-    expect(res.body.currency).toBe('USD');
+    expect(res.body.amount).toBe(9900);
+    expect(res.body.currency).toBe('INR');
     expect(res.body.keyId).toBe(KEY_ID);
     expect(res.body.orderId).toMatch(/^order_/);
+  });
+
+  it('prices the daily plan at one day of access', async () => {
+    await configureGateway();
+    const { client } = await registerUser();
+
+    const res = await client.post('/api/subscription/order', { planId: 'pro-daily' });
+    expect(res.status).toBe(201);
+    expect(res.body.amount).toBe(1900);
+  });
+
+  it('refuses to charge when the gateway currency is not the plan currency', async () => {
+    await configureGateway();
+    const admin = await loginAdmin();
+    await admin.put('/api/razorpay/config', { currency: 'USD' });
+
+    const { client } = await registerUser();
+    const res = await client.post('/api/subscription/order', { planId: 'pro-monthly' });
+    expect(res.status).toBe(400);
+    expect(res.body.error).toMatch(/INR/);
   });
 
   it('rejects an unknown plan id', async () => {
@@ -181,7 +202,7 @@ describe('payment verification', () => {
       [paymentId],
     );
     expect(payment.rows[0]!.status).toBe('captured');
-    expect(Number(payment.rows[0]!.amount)).toBe(3);
+    expect(Number(payment.rows[0]!.amount)).toBe(99);
   });
 
   it('is idempotent when the browser retries verification', async () => {
@@ -232,10 +253,29 @@ describe('payment verification', () => {
 describe('demo payments', () => {
   it('grants Pro when explicitly enabled', async () => {
     const { client } = await registerUser();
-    const res = await client.post('/api/subscription/demo', { planId: 'pro-weekly' });
+    const res = await client.post('/api/subscription/demo', { planId: 'pro-daily' });
     expect(res.status).toBe(200);
     expect(res.body.user.plan).toBe('pro');
-    expect(res.body.user.subscriptionPlan).toBe('pro-weekly');
+    expect(res.body.user.subscriptionPlan).toBe('pro-daily');
+  });
+
+  it('refuses a retired plan id', async () => {
+    const { client } = await registerUser();
+    const res = await client.post('/api/subscription/demo', { planId: 'pro-weekly' });
+    expect(res.status).toBe(400);
+    expect(res.body.error).toMatch(/Unknown plan/);
+  });
+
+  it('records the price from the catalogue, ignoring anything the client sends', async () => {
+    const { client } = await registerUser();
+    const res = await client.post('/api/subscription/demo', { planId: 'pro-monthly', price: 0.01 });
+    expect(res.status).toBe(200);
+
+    const rows = await h.db.query<{ amount: number; currency: string; plan_name: string }>(
+      'SELECT amount::double precision AS amount, currency, plan_name FROM payments ORDER BY created_at DESC LIMIT 1',
+    );
+    expect(rows.rows[0]!.amount).toBe(99);
+    expect(rows.rows[0]!.currency).toBe('INR');
   });
 
   it('is refused when disabled, even for a signed-in user', async () => {
@@ -243,7 +283,7 @@ describe('demo payments', () => {
     h = await createHarness({ ALLOW_DEMO_PAYMENTS: 'false' });
 
     const { client } = await registerUser();
-    const res = await client.post('/api/subscription/demo', { planId: 'pro-weekly' });
+    const res = await client.post('/api/subscription/demo', { planId: 'pro-daily' });
     expect(res.status).toBe(403);
 
     const rows = await h.db.query<{ plan: string }>('SELECT plan FROM users WHERE email = $1', [
@@ -272,7 +312,7 @@ describe('payment ledger', () => {
     expect(res.body.payments).toHaveLength(1);
     expect(res.body.payments[0].razorpayPaymentId).toBe(paymentId);
     expect(res.body.payments[0].userEmail).toBe('user@example.com');
-    expect(res.body.revenue.USD).toBe(3);
+    expect(res.body.revenue.INR).toBe(99);
   });
 
   it('keeps the all-payments ledger out of reach of a normal user', async () => {

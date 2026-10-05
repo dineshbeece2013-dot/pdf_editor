@@ -15,20 +15,26 @@ export interface Plan {
   description: string;
 }
 
+/**
+ * The Rupee sign, written as an escape so this file stays pure ASCII and
+ * cannot be corrupted by an editor or a `git` line-ending conversion.
+ */
+const INR = '\u20b9';
+
 export const PLANS = {
-  'pro-weekly': {
-    id: 'pro-weekly',
-    name: '$1 / 7 days',
-    price: 1,
-    currency: 'USD',
-    durationDays: 7,
-    description: 'Unlimited PDF editing for 7 days',
+  'pro-daily': {
+    id: 'pro-daily',
+    name: `${INR}19 / day`,
+    price: 19,
+    currency: 'INR',
+    durationDays: 1,
+    description: 'Unlimited PDF editing for 24 hours',
   },
   'pro-monthly': {
     id: 'pro-monthly',
-    name: '$3 / month',
-    price: 3,
-    currency: 'USD',
+    name: `${INR}99 / month`,
+    price: 99,
+    currency: 'INR',
     durationDays: 30,
     description: 'Unlimited PDF editing for 30 days',
   },

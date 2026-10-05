@@ -9,7 +9,7 @@ import { api } from './api';
  * server hashes with Argon2id and never returns the value in any form.
  */
 
-export type SubscriptionPlan = 'free' | 'pro-weekly' | 'pro-monthly' | null;
+export type SubscriptionPlan = 'free' | 'pro-daily' | 'pro-monthly' | null;
 
 export interface AppUser {
   id: string;

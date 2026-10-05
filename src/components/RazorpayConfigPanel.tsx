@@ -1,8 +1,8 @@
 import React, { useEffect, useState } from 'react';
 import { AlertTriangle, Check, Eye, EyeOff, KeyRound, RotateCcw } from 'lucide-react';
-import { gatewayApi, type PublicGatewayConfig } from '../services/razorpay';
+import { gatewayApi, subscriptionApi, type PublicGatewayConfig } from '../services/razorpay';
 import { messageFor } from '../services/api';
-import { SUBSCRIPTION_PLANS } from '../services/subscription';
+import { formatPrice, type PlanSummary } from '../services/subscription';
 
 const FIELDS: { key: 'keyId' | 'currency'; label: string; hint: string }[] = [
   { key: 'keyId', label: 'Key ID', hint: 'Publishable key — safe to expose (starts with rzp_)' },
@@ -25,13 +25,20 @@ export const RazorpayConfigPanel: React.FC = () => {
   const [saved, setSaved] = useState(false);
   const [error, setError] = useState('');
   const [busy, setBusy] = useState(false);
+  /** Priced by the server; this panel only displays what it returns. */
+  const [plans, setPlans] = useState<PlanSummary[]>([]);
 
   useEffect(() => {
     let cancelled = false;
-    void gatewayApi
-      .get()
-      .then((cfg) => {
-        if (!cancelled) setConfig(cfg);
+    // The plans endpoint returns the gateway config too, so this one call
+    // fills both panels and cannot show a price from a different currency.
+    void subscriptionApi
+      .plans()
+      .then((res) => {
+        if (!cancelled) {
+          setConfig(res.gateway);
+          setPlans(res.plans);
+        }
       })
       .catch((err) => {
         if (!cancelled) setError(messageFor(err));
@@ -172,7 +179,7 @@ export const RazorpayConfigPanel: React.FC = () => {
       <div className="bg-white border border-neutral-200 rounded-lg shadow-sm p-5">
         <h2 className="text-lg font-bold text-neutral-800 mb-3">Subscription Plans</h2>
         <div className="space-y-2">
-          {Object.values(SUBSCRIPTION_PLANS).map((p) => (
+          {plans.map((p) => (
             <div
               key={p.id}
               className="flex items-center justify-between p-3 rounded-md bg-neutral-50 border border-neutral-100"
@@ -181,10 +188,7 @@ export const RazorpayConfigPanel: React.FC = () => {
                 <div className="font-semibold text-sm text-neutral-800">{p.name}</div>
                 <div className="text-xs text-neutral-500">{p.description}</div>
               </div>
-              <span className="text-xs font-bold text-emerald-700 tabular-nums">
-                {String(p.currency) === 'INR' ? '₹' : '$'}
-                {p.price}
-              </span>
+              <span className="text-xs font-bold text-emerald-700 tabular-nums">{formatPrice(p)}</span>
             </div>
           ))}
         </div>

@@ -2,8 +2,14 @@ import React, { useEffect, useState } from 'react';
 import { Check, Crown, Loader2, ShieldCheck, Sparkles } from 'lucide-react';
 import { Modal } from './Modal';
 import { useAuth } from '../context/AuthContext';
-import { SUBSCRIPTION_PLANS, type PlanId } from '../services/subscription';
-import { gatewayApi, startRazorpayCheckout, subscriptionApi } from '../services/razorpay';
+import {
+  PLAN_ORDER,
+  formatPrice,
+  planLabel,
+  type PlanId,
+  type PlanSummary,
+} from '../services/subscription';
+import { subscriptionApi, startRazorpayCheckout } from '../services/razorpay';
 import { ApiError, messageFor } from '../services/api';
 
 /** Turn a failed checkout into something the user can act on. */
@@ -28,8 +34,6 @@ export interface UpgradeModalProps {
   onSubscribed?: (planId: PlanId) => void;
 }
 
-const PLAN_ORDER: PlanId[] = ['pro-weekly', 'pro-monthly'];
-
 const FEATURES = [
   'Unlimited PDF edits',
   'Add text, shapes, signatures & images',
@@ -47,22 +51,32 @@ export const UpgradeModal: React.FC<UpgradeModalProps> = ({ isOpen, onClose, rea
   const [status, setStatus] = useState<'idle' | 'processing' | 'error' | 'success'>('idle');
   const [message, setMessage] = useState('');
   const [gatewayReady, setGatewayReady] = useState<boolean | null>(null);
+  /**
+   * Prices come from the server, so the figure shown is the figure charged.
+   * Null while loading or if the request fails — the picker then falls back to
+   * plan names only and checkout stays disabled rather than quoting a guess.
+   */
+  const [plans, setPlans] = useState<PlanSummary[] | null>(null);
 
-  const plan = SUBSCRIPTION_PLANS[selected];
-  const currencySymbol = String(plan.currency) === 'INR' ? '\u20b9' : '$';
+  const plan = plans?.find((p) => p.id === selected) ?? null;
+  const plansById = new Map((plans ?? []).map((p) => [p.id, p]));
 
   // Whether real checkout is possible is decided by the server's stored
   // configuration, not by anything bundled into this page.
   useEffect(() => {
     if (!isOpen) return;
     let cancelled = false;
-    void gatewayApi
-      .get()
-      .then((cfg) => {
-        if (!cancelled) setGatewayReady(cfg.isConfigured);
+    void subscriptionApi
+      .plans()
+      .then((res) => {
+        if (cancelled) return;
+        setPlans(res.plans);
+        setGatewayReady(res.gateway.isConfigured);
       })
       .catch(() => {
-        if (!cancelled) setGatewayReady(false);
+        if (cancelled) return;
+        setGatewayReady(false);
+        setPlans([]);
       });
     return () => {
       cancelled = true;
@@ -70,7 +84,7 @@ export const UpgradeModal: React.FC<UpgradeModalProps> = ({ isOpen, onClose, rea
   }, [isOpen]);
 
   const handleRazorpay = async () => {
-    if (!user) return;
+    if (!user || !plan) return;
     setStatus('processing');
     setMessage('');
 
@@ -142,7 +156,7 @@ export const UpgradeModal: React.FC<UpgradeModalProps> = ({ isOpen, onClose, rea
           </div>
           <h3 className="text-lg font-bold text-neutral-800">You&apos;re on Pro!</h3>
           <p className="text-sm text-neutral-500 mt-1">
-            {SUBSCRIPTION_PLANS[selected].name} is now active. Enjoy unlimited editing.
+            {planLabel(selected)} is now active. Enjoy unlimited editing.
           </p>
           <button
             onClick={close}
@@ -166,9 +180,8 @@ export const UpgradeModal: React.FC<UpgradeModalProps> = ({ isOpen, onClose, rea
 
           <div className="grid sm:grid-cols-2 gap-3">
             {PLAN_ORDER.map((id) => {
-              const p = SUBSCRIPTION_PLANS[id];
+              const p = plansById.get(id);
               const active = selected === id;
-              const sym = String(p.currency) === 'INR' ? '\u20b9' : '$';
               return (
                 <button
                   key={id}
@@ -184,7 +197,7 @@ export const UpgradeModal: React.FC<UpgradeModalProps> = ({ isOpen, onClose, rea
                   <div className="flex items-center justify-between">
                     <span className="text-sm font-semibold text-neutral-700 flex items-center gap-1.5">
                       <Crown className={'w-4 h-4 ' + (active ? 'text-emerald-600' : 'text-neutral-400')} />
-                      {id === 'pro-monthly' ? 'Monthly' : 'Weekly'}
+                      {planLabel(id)}
                     </span>
                     {id === 'pro-monthly' && (
                       <span className="text-[10px] font-bold uppercase tracking-wide bg-emerald-600 text-white px-2 py-0.5 rounded-full">
@@ -194,12 +207,13 @@ export const UpgradeModal: React.FC<UpgradeModalProps> = ({ isOpen, onClose, rea
                   </div>
                   <div className="mt-2 flex items-baseline gap-1">
                     <span className="text-2xl font-bold text-neutral-900 tabular-nums">
-                      {sym}
-                      {p.price}
+                      {p ? formatPrice(p) : <span className="text-neutral-300">&mdash;</span>}
                     </span>
-                    <span className="text-xs text-neutral-500">/ {p.durationDays} days</span>
+                    <span className="text-xs text-neutral-500">
+                      {p ? (p.durationDays === 1 ? '/day' : '/month') : ''}
+                    </span>
                   </div>
-                  <p className="text-xs text-neutral-500 mt-1">{p.description}</p>
+                  <p className="text-xs text-neutral-500 mt-1">{p?.description ?? ''}</p>
                 </button>
               );
             })}
@@ -223,7 +237,7 @@ export const UpgradeModal: React.FC<UpgradeModalProps> = ({ isOpen, onClose, rea
           <div className="space-y-2 pt-1">
             <button
               onClick={handleRazorpay}
-              disabled={status === 'processing'}
+              disabled={status === 'processing' || !plan}
               className="w-full py-3 bg-emerald-600 hover:bg-emerald-700 disabled:opacity-60 text-white rounded-lg font-semibold text-sm flex items-center justify-center gap-2"
             >
               {status === 'processing' ? (
@@ -232,8 +246,8 @@ export const UpgradeModal: React.FC<UpgradeModalProps> = ({ isOpen, onClose, rea
                 </>
               ) : (
                 <>
-                  <ShieldCheck className="w-4 h-4" /> Pay {currencySymbol}
-                  {plan.price} with Razorpay
+                  <ShieldCheck className="w-4 h-4" />
+                  {plan ? `Pay ${formatPrice(plan)} with Razorpay` : 'Loading price…'}
                 </>
               )}
             </button>

@@ -53,8 +53,8 @@ export function subscriptionRouter(db: Database, config: AppConfig): Router {
         }
 
         // The charge is denominated in the gateway currency. Refuse a
-        // mismatch rather than silently charging "₹3" for a plan advertised
-        // as "$3 / month".
+        // mismatch rather than silently charging one currency's worth of a
+        // plan advertised in another.
         if (plan.currency !== gateway.currency) {
           throw new HttpError(
             400,
