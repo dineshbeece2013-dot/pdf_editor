@@ -8,6 +8,19 @@ html, body, #root {
   overflow: hidden;
 }
 
+/*
+ * The pre-rendered copy inside #root (written at build time by
+ * scripts/inject-seo.mjs) exists for crawlers and readers without
+ * JavaScript; React replaces it on mount. Without this rule the browser
+ * paints it as raw, unstyled text for as long as the JS bundle takes to
+ * download, so hide it — the stylesheet is render-blocking, so a normal
+ * browser never shows it. The <noscript> block in index.html puts it back,
+ * with layout, when scripts are disabled.
+ */
+.seo-prerender {
+  display: none;
+}
+
 /* Light, minimal base: white/neutral surfaces, airy typography. */
 body {
   font-family: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto,

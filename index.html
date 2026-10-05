@@ -28,6 +28,26 @@
     />
     <meta property="og:url" content="https://digitalpdfeditor.com/" />
     <meta name="twitter:card" content="summary" />
+
+    <!--
+      With JavaScript off the app never mounts, so the pre-rendered content
+      in #root *is* the page: reveal it (this rule out-specifies the app
+      stylesheet's hide rule) and let the document scroll again.
+    -->
+    <noscript>
+      <style>
+        html, body, #root { height: auto; overflow: auto; }
+        html body #root .seo-prerender {
+          display: block;
+          max-width: 64rem;
+          margin: 0 auto;
+          padding: 2rem 1rem;
+        }
+        html body #root .seo-prerender section,
+        html body #root .seo-prerender footer { margin-bottom: 2.5rem; }
+        html body #root .seo-prerender nav { display: flex; flex-wrap: wrap; gap: 1rem; }
+      </style>
+    </noscript>
   </head>
   <body>
     <div id="root"></div>
