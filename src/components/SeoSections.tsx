@@ -62,7 +62,7 @@ export const SeoSections: React.FC = () => {
             <div key={p.name} className="rounded-xl border border-neutral-200 bg-white p-6">
               <h3 className="font-semibold text-neutral-900">{p.name}</h3>
               <p className="mt-2 text-2xl font-bold text-neutral-900 tabular-nums">
-                <span aria-hidden="true">₹</span>
+                <span aria-hidden="true">{p.currency === 'INR' ? '₹' : '$'}</span>
                 {p.price}
               </p>
               <p className="mt-1 text-sm text-neutral-600">{p.description}</p>

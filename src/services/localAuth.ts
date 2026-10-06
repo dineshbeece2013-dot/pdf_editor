@@ -1,4 +1,14 @@
 import { api } from './api';
+import type { PlanSummary } from './subscription';
+
+export interface PlanPatch {
+  name?: string;
+  price?: number;
+  currency?: string;
+  durationDays?: number;
+  description?: string;
+  active?: boolean;
+}
 
 /**
  * Accounts API client.
@@ -9,7 +19,7 @@ import { api } from './api';
  * server hashes with Argon2id and never returns the value in any form.
  */
 
-export type SubscriptionPlan = 'free' | 'pro-daily' | 'pro-monthly' | null;
+export type SubscriptionPlan = 'free' | 'pro-daily' | 'pro-weekly' | 'pro-monthly' | null;
 
 export interface AppUser {
   id: string;
@@ -87,6 +97,9 @@ export const adminApi = {
   grantSubscription: (id: string, planId: string) =>
     api.post<{ user: AppUser }>(`/admin/users/${id}/grant`, { planId }),
   cancelSubscription: (id: string) => api.post<{ user: AppUser }>(`/admin/users/${id}/cancel`),
+  listPlans: () => api.get<{ plans: PlanSummary[] }>(`/admin/plans`),
+  updatePlan: (id: string, patch: PlanPatch) =>
+    api.patch<{ plan: PlanSummary }>(`/admin/plans/${id}`, patch),
 };
 
 /**

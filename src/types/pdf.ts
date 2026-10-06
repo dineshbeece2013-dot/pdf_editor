@@ -34,6 +34,8 @@ export interface DetectedTextItem {
   editOverlayId?: string;
   editIsBold?: boolean;
   editColor?: string;
+  /** Saved overlay's text opacity (0–1), seeds the editor's opacity slider. */
+  editOpacity?: number;
 }
 
 export interface EditedTextOverlay {
@@ -49,6 +51,11 @@ export interface EditedTextOverlay {
   color: string;
   isBold?: boolean;
   isItalic?: boolean;
+  /**
+   * Text opacity 0–1. Default (undefined or 1) is 100% — fully opaque.
+   * The inline editor exposes a slider so the user can reduce it if wanted.
+   */
+  opacity?: number;
   coverOriginal?: boolean; // whether to draw a background patch to mask original
   coverRect?: {
     pdfX: number;
@@ -114,10 +121,10 @@ export interface ImageOverlay {
   pdfHeight: number;
 }
 
-export type ShapeKind = 'ellipse' | 'rectangle' | 'arrow';
+export type ShapeKind = 'ellipse' | 'rectangle' | 'triangle';
 export type StampKind = 'check' | 'cross' | 'star';
 
-/** Vector shape annotation drawn by drag (ellipse / rectangle / arrow). */
+/** Vector shape annotation drawn by drag (ellipse / rectangle / triangle). */
 export interface ShapeOverlay {
   id: string;
   pageIndex: number;
@@ -127,7 +134,7 @@ export interface ShapeOverlay {
   pdfY: number;
   pdfWidth: number;
   pdfHeight: number;
-  /** Endpoints in PDF points: [drag start, drag end] — defines arrow direction. */
+  /** Endpoints in PDF points: [drag start, drag end] — defines triangle orientation. */
   points: { x: number; y: number }[];
   color: string;
   strokeWidth: number;
@@ -147,6 +154,25 @@ export interface StampOverlay {
   pdfWidth: number;
   pdfHeight: number;
   color: string;
+}
+
+/**
+ * One stamp of the eraser's white cover: a rectangle that hides whatever the
+ * page underneath it contains — live text, images, existing annotations.
+ *
+ * A browser editor cannot strip content operators out of an existing PDF
+ * stream, so erasing works the way paper does visually: paint over the region
+ * with the page colour. Export draws these rectangles last, on top of every
+ * other element, so the result matches what the screen shows.
+ */
+export interface EraseArea {
+  id: string;
+  pageIndex: number;
+  /** Cover rect in PDF points (origin bottom-left). */
+  pdfX: number;
+  pdfY: number;
+  pdfWidth: number;
+  pdfHeight: number;
 }
 
 /** Which color the toolbar palette currently controls. */

@@ -101,7 +101,7 @@ export const FAQ: FaqItem[] = [
   {
     question: 'Is this PDF editor really free?',
     answer:
-      'Yes. You get one free edit every day, with no account required. If you need unlimited edits, Pro is ₹19 for a day or ₹99 for a month.',
+      'Yes. You get one free edit every day, with no account required. If you need unlimited edits, Pro is $1 a week or $3 a month.',
   },
   {
     question: 'Do I need to create an account?',
@@ -127,8 +127,8 @@ export const FAQ: FaqItem[] = [
 
 /** The two paid tiers, used for the SoftwareApplication structured data. */
 export const PRICING = [
-  { name: 'Pro Daily', price: '19', currency: 'INR', description: 'Unlimited PDF editing for 24 hours' },
-  { name: 'Pro Monthly', price: '99', currency: 'INR', description: 'Unlimited PDF editing for 30 days' },
+  { name: 'Pro Weekly', price: '1', currency: 'USD', description: 'Unlimited PDF editing for 7 days' },
+  { name: 'Pro Monthly', price: '3', currency: 'USD', description: 'Unlimited PDF editing for 30 days' },
 ];
 
 export interface PolicySection {
@@ -224,7 +224,7 @@ export const TERMS_OF_SERVICE: PolicySection[] = [
     heading: 'The service',
     paragraphs: [
       'PDF Editor Pro is a browser-based tool for viewing and editing PDF documents. The free tier includes a limited number of edits per day. Paid plans are described on the upgrade screen, along with their price and duration.',
-      'Prices are shown in Indian Rupees and are charged by Razorpay. A plan grants unlimited editing for the period stated at the time of purchase.',
+      'Prices are shown in Indian rupees (INR) and are charged by Razorpay. A plan grants unlimited editing for the period stated at the time of purchase.',
     ],
   },
   {

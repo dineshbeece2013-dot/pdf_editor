@@ -4,6 +4,7 @@ import type {
   ToolType,
   DetectedTextItem,
   EditedTextOverlay,
+  EraseArea,
   PageCropSetting,
   SignatureItem,
   HighlightArea,
@@ -57,6 +58,10 @@ export interface PdfViewerProps {
   onAddShape: (sh: ShapeOverlay) => void;
   onAddStamp: (st: StampOverlay) => void;
   onEraseItems: (ids: string[], isFirstOfStroke: boolean) => void;
+  /** White covers painted by the eraser over the page's own content. */
+  eraseAreas: EraseArea[];
+  /** Committed in one call per stroke so a whole erase undoes as one step. */
+  onAddEraseAreas: (areas: EraseArea[]) => void;
   shapeKind: ShapeKind;
   shapeFillEnabled: boolean;
   shapeFillColor: string;
@@ -66,6 +71,14 @@ export interface PdfViewerProps {
   onClearPendingImage: () => void;
   toolColors: ToolColors;
 }
+
+/**
+ * Eraser brush geometry, in VIEW pixels (it scales with zoom like every other
+ * tool): one white cover stamp per ERASER_STEP of travel, each stamp a square
+ * of ERASER_STAMP. Stamps merge visually into a continuous white band.
+ */
+const ERASER_STAMP = 16;
+const ERASER_STEP = 6;
 
 export const PdfViewer: React.FC<PdfViewerProps> = ({
   pdfBytes,
@@ -102,6 +115,8 @@ export const PdfViewer: React.FC<PdfViewerProps> = ({
   onAddShape,
   onAddStamp,
   onEraseItems,
+  eraseAreas,
+  onAddEraseAreas,
   shapeKind,
   shapeFillEnabled,
   shapeFillColor,
@@ -150,6 +165,10 @@ export const PdfViewer: React.FC<PdfViewerProps> = ({
   const [shapeBox, setShapeBox] = useState<{ x: number; y: number; w: number; h: number } | null>(null);
   const [erasing, setErasing] = useState(false);
   const [erasedInStroke, setErasedInStroke] = useState<string[]>([]);
+  // Live white-cover stamps for the current eraser stroke (view coords).
+  // Committed as EraseAreas on mouseup — one history entry per stroke.
+  const [eraseStamps, setEraseStamps] = useState<{ x: number; y: number }[]>([]);
+  const lastEraseStampRef = useRef<{ x: number; y: number } | null>(null);
 
   // Text-overlay selection + corner-resize drag (edit-text tool).
   const [selectedOverlayId, setSelectedOverlayId] = useState<string | null>(null);
@@ -164,12 +183,33 @@ export const PdfViewer: React.FC<PdfViewerProps> = ({
     min: number;
   } | null>(null);
 
+  // Drag-to-move for a text box (edit-text tool). The drag is tracked in
+  // client space with window listeners so it survives leaving the box, and
+  // the open inline editor is moved along with the overlay — it saves from
+  // these coordinates, so falling behind would snap the box back on save.
+  const [overlayMove, setOverlayMove] = useState<{
+    id: string; // overlay being moved
+    itemId: string | null; // open editor item, synced while dragging
+    cx: number; // client coords where the drag started
+    cy: number;
+    pdfX: number; // overlay position when the drag started
+    pdfY: number;
+    w: number; // overlay size in PDF points (for clamping to the page)
+    h: number;
+    started: boolean; // false until the pointer clears the click threshold
+  } | null>(null);
+  // Set when a drag ends over the box itself: the follow-up click must not
+  // re-open the editor the user just dragged.
+  const suppressOverlayClickRef = useRef(false);
+
   // Leaving a tool closes any open inline editor and aborts half-finished
   // drag operations so stale state can't leak across tools.
   useEffect(() => {
     setActiveEditingItem(null);
     setSelectedOverlayId(null);
     setOverlayResize(null);
+    setOverlayMove(null);
+    suppressOverlayClickRef.current = false;
     setIsDrawing(false);
     setCurrentPath([]);
     setHlStart(null);
@@ -181,6 +221,8 @@ export const PdfViewer: React.FC<PdfViewerProps> = ({
     setShapeBox(null);
     setErasing(false);
     setErasedInStroke([]);
+    setEraseStamps([]);
+    lastEraseStampRef.current = null;
   }, [currentTool]);
 
   // The selection is in view coordinates: page/zoom/crop changes invalidate it.
@@ -191,6 +233,7 @@ export const PdfViewer: React.FC<PdfViewerProps> = ({
     setSelBox(null);
     setSelectedOverlayId(null);
     setOverlayResize(null);
+    setOverlayMove(null);
     setShapeStart(null);
     setShapeBox(null);
   }, [currentPage, scale, cropSettings]);
@@ -432,6 +475,62 @@ export const PdfViewer: React.FC<PdfViewerProps> = ({
     };
   }, [overlayResize, scaleX, scaleY, pageSize.pdfWidth, onUpdateTextOverlay]);
 
+  // Text-box drag-to-move: same window-listener pattern as the resize handle.
+  // pdfX/pdfY are clamped, so a box can be moved anywhere INSIDE the page but
+  // never partially outside it. The open inline editor is updated in lockstep.
+  useEffect(() => {
+    if (!overlayMove) return;
+    const onMove = (e: MouseEvent) => {
+      const dx = e.clientX - overlayMove.cx;
+      const dy = e.clientY - overlayMove.cy;
+      if (!overlayMove.started) {
+        // Below the threshold the gesture is still a click, not a drag.
+        if (Math.hypot(dx, dy) < 3) return;
+        setOverlayMove((m) => (m ? { ...m, started: true } : m));
+        // Snapshot history once for the whole drag (same as resize).
+        onUpdateTextOverlay(overlayMove.id, {}, true);
+      }
+      const maxW = Math.max(0, pageSize.pdfWidth - overlayMove.w);
+      const maxH = Math.max(0, pageSize.pdfHeight - overlayMove.h);
+      const pdfX = Math.min(maxW, Math.max(0, overlayMove.pdfX + dx * scaleX));
+      const pdfY = Math.min(maxH, Math.max(0, overlayMove.pdfY - dy * scaleY));
+      onUpdateTextOverlay(overlayMove.id, { pdfX, pdfY });
+      if (overlayMove.itemId) {
+        // The editor saves from item coordinates — keep its view and PDF
+        // positions in step with the overlay or "Update Text" snaps it back.
+        const vx = pdfX * sX - offX;
+        const vy = fullH - (pdfY + overlayMove.h) * sY - offY;
+        setActiveEditingItem((prev) =>
+          prev && prev.id === overlayMove.itemId ? { ...prev, x: vx, y: vy, pdfX, pdfY } : prev,
+        );
+      }
+    };
+    const onUp = () => {
+      setOverlayMove((m) => {
+        if (m && m.started) suppressOverlayClickRef.current = true;
+        return null;
+      });
+    };
+    window.addEventListener('mousemove', onMove);
+    window.addEventListener('mouseup', onUp);
+    return () => {
+      window.removeEventListener('mousemove', onMove);
+      window.removeEventListener('mouseup', onUp);
+    };
+  }, [
+    overlayMove,
+    scaleX,
+    scaleY,
+    sX,
+    sY,
+    offX,
+    offY,
+    fullH,
+    pageSize.pdfWidth,
+    pageSize.pdfHeight,
+    onUpdateTextOverlay,
+  ]);
+
   const handleMouseDown = (e: React.MouseEvent<HTMLDivElement>) => {
     if (!pageSize.width) return;
     const rect = e.currentTarget.getBoundingClientRect();
@@ -523,6 +622,10 @@ export const PdfViewer: React.FC<PdfViewerProps> = ({
     if (currentTool === 'erase') {
       setErasing(true);
       setErasedInStroke([]);
+      lastEraseStampRef.current = null;
+      setEraseStamps([]);
+      // Paint the first white stamp immediately so even a click erases.
+      stampErase(x, y);
       const hits = hitTestErase(x, y);
       if (hits.length > 0) {
         onEraseItems(hits, true);
@@ -593,6 +696,8 @@ export const PdfViewer: React.FC<PdfViewerProps> = ({
         onEraseItems(hits, erasedInStroke.length === 0);
         setErasedInStroke((prev) => [...prev, ...hits]);
       }
+      // Keep painting the white cover along the stroke.
+      stampErase(x, y);
       return;
     }
 
@@ -639,11 +744,27 @@ export const PdfViewer: React.FC<PdfViewerProps> = ({
     if (erasing) {
       setErasing(false);
       setErasedInStroke([]);
+      // Commit the stroke's white stamps as real, undoable EraseAreas —
+      // one call so the whole stroke lands in history as a single step.
+      if (eraseStamps.length > 0) {
+        const half = ERASER_STAMP / 2;
+        const areas: EraseArea[] = eraseStamps.map((s, i) => ({
+          id: `erase-${Date.now()}-${i}`,
+          pageIndex: currentPage,
+          pdfX: (offX + s.x - half) * scaleX,
+          pdfY: pageSize.pdfHeight - (offY + s.y + half) * scaleY,
+          pdfWidth: ERASER_STAMP * scaleX,
+          pdfHeight: ERASER_STAMP * scaleY,
+        }));
+        onAddEraseAreas(areas);
+      }
+      setEraseStamps([]);
+      lastEraseStampRef.current = null;
     }
 
     if (shapeStart && shapeBox && currentTool === 'ellipse') {
       if (shapeBox.w > 8 && shapeBox.h > 8) {
-        // Preserve the drag direction — it defines an arrow's head direction.
+        // Preserve the drag direction — it decides which way the triangle points.
         const startOnLeft = shapeStart.x - shapeBox.x < shapeBox.w / 2;
         const startOnTop = shapeStart.y - shapeBox.y < shapeBox.h / 2;
         const x0 = (offX + shapeBox.x) * scaleX;
@@ -664,9 +785,10 @@ export const PdfViewer: React.FC<PdfViewerProps> = ({
           ],
           color: toolColors.shape,
           strokeWidth: 2,
-          // Filled interior for closed shapes; arrows always stay outline-only.
-          fillColor: shapeFillEnabled && shapeKind !== 'arrow' ? shapeFillColor : undefined,
-          fillOpacity: shapeFillEnabled && shapeKind !== 'arrow' ? shapeFillOpacity : undefined,
+          // Filled interior when fill is on. All three shapes (ellipse,
+          // rectangle, triangle) are closed and accept a fill.
+          fillColor: shapeFillEnabled ? shapeFillColor : undefined,
+          fillOpacity: shapeFillEnabled ? shapeFillOpacity : undefined,
         });
       }
       setShapeStart(null);
@@ -725,6 +847,7 @@ export const PdfViewer: React.FC<PdfViewerProps> = ({
   const pageImages = imageOverlays.filter((img) => img.pageIndex === currentPage);
   const pageShapes = shapes.filter((s) => s.pageIndex === currentPage);
   const pageStamps = stamps.filter((s) => s.pageIndex === currentPage);
+  const pageEraseAreas = eraseAreas.filter((a) => a.pageIndex === currentPage);
   // Live drag box takes precedence over the committed selection for display.
   const activeSel = selBox ?? selRect;
   const ghostW = pasteGhost ? pasteGhost.pdfW * sX : 0;
@@ -794,6 +917,21 @@ export const PdfViewer: React.FC<PdfViewerProps> = ({
   const isOriginalCovered = (item: DetectedTextItem) => {
     const cx = item.pdfX + item.pdfWidth / 2;
     const cy = item.pdfY + item.pdfHeight / 2;
+    // Eraser masks count too: the text under one is gone, so its hotspot
+    // must not offer to edit it.
+    const cxView = (offX + item.x + item.width / 2) * scaleX;
+    const cyView = pageSize.pdfHeight - (offY + item.y + item.height / 2) * scaleY;
+    if (
+      pageEraseAreas.some(
+        (a) =>
+          cxView >= a.pdfX &&
+          cxView <= a.pdfX + a.pdfWidth &&
+          cyView >= a.pdfY &&
+          cyView <= a.pdfY + a.pdfHeight,
+      )
+    ) {
+      return true;
+    }
     return pageOverlays.some(
       (o) =>
         o.coverRect &&
@@ -803,6 +941,63 @@ export const PdfViewer: React.FC<PdfViewerProps> = ({
         cy <= o.coverRect.pdfY + o.coverRect.pdfHeight,
     );
   };
+
+  /**
+   * Paint one white eraser stamp at a view-space point. Stamps are skipped
+   * where a committed mask already covers the spot, so re-rubbing an erased
+   * area does not pile rectangles on top of each other, and spaced by
+   * ERASER_STEP so a stroke stays a sane number of rectangles.
+   */
+  const stampErase = (x: number, y: number) => {
+    const last = lastEraseStampRef.current;
+    if (last && Math.hypot(x - last.x, y - last.y) < ERASER_STEP) return;
+    lastEraseStampRef.current = { x, y };
+    const half = ERASER_STAMP / 2;
+    const pdfX = (offX + x - half) * scaleX;
+    const pdfY = pageSize.pdfHeight - (offY + y + half) * scaleY;
+    const pdfW = ERASER_STAMP * scaleX;
+    const pdfH = ERASER_STAMP * scaleY;
+    const covered = pageEraseAreas.some(
+      (a) =>
+        pdfX >= a.pdfX &&
+        pdfX + pdfW <= a.pdfX + a.pdfWidth &&
+        pdfY >= a.pdfY &&
+        pdfY + pdfH <= a.pdfY + a.pdfHeight,
+    );
+    if (covered) return;
+    setEraseStamps((prev) => [...prev, { x, y }]);
+  };
+
+  /**
+   * Begin a drag-to-move for a text box. Started either from the box itself
+   * or from the grip in the inline editor's header, which sits above the box
+   * and would otherwise make the box unreachable while editing.
+   */
+  const beginOverlayMove = (e: React.MouseEvent, overlay: EditedTextOverlay, itemId: string | null) => {
+    e.preventDefault();
+    e.stopPropagation();
+    suppressOverlayClickRef.current = false;
+    setOverlayMove({
+      id: overlay.id,
+      itemId,
+      cx: e.clientX,
+      cy: e.clientY,
+      pdfX: overlay.pdfX,
+      pdfY: overlay.pdfY,
+      w: overlay.pdfWidth,
+      h: overlay.pdfHeight,
+      started: false,
+    });
+  };
+
+  // Overlay whose editor is currently open (`reedit-<overlayId>`), else null.
+  const editingOverlayId =
+    activeEditingItem && activeEditingItem.id.startsWith('reedit-')
+      ? activeEditingItem.id.slice('reedit-'.length)
+      : null;
+  const editingOverlay = editingOverlayId
+    ? textOverlays.find((o) => o.id === editingOverlayId) ?? null
+    : null;
 
 
 
@@ -895,28 +1090,60 @@ export const PdfViewer: React.FC<PdfViewerProps> = ({
           const a = sh.points[0];
           const b = sh.points[1];
           if (!a || !b) return null;
+          // Triangle: the apex sits at the drag end (b), the base on the
+          // opposite side — whichever axis dominates the drag decides whether
+          // it points left / right / up / down.
           const ax = a.x * sX - offX;
           const ay = fullH - a.y * sY - offY;
           const bx = b.x * sX - offX;
           const by = fullH - b.y * sY - offY;
-          const ang = Math.atan2(by - ay, bx - ax);
-          const head = Math.min(12, Math.hypot(bx - ax, by - ay) * 0.4);
-          const h1 = { x: bx - head * Math.cos(ang - 0.45), y: by - head * Math.sin(ang - 0.45) };
-          const h2 = { x: bx - head * Math.cos(ang + 0.45), y: by - head * Math.sin(ang + 0.45) };
+          const right = box.left + box.width;
+          const bottom = box.top + box.height;
+          const midX = box.left + box.width / 2;
+          const midY = box.top + box.height / 2;
+          const pts =
+            Math.abs(bx - ax) >= Math.abs(by - ay)
+              ? bx >= ax
+                ? `${box.left},${box.top} ${box.left},${bottom} ${right},${midY}`
+                : `${right},${box.top} ${right},${bottom} ${box.left},${midY}`
+              : by >= ay
+                ? `${box.left},${box.top} ${right},${box.top} ${midX},${bottom}`
+                : `${box.left},${bottom} ${right},${bottom} ${midX},${box.top}`;
           return (
             <svg key={sh.id} className="absolute top-0 left-0 pointer-events-none z-[5]" width={pageSize.width} height={pageSize.height}>
-              <line x1={ax} y1={ay} x2={bx} y2={by} stroke={stroke} strokeWidth={sw} strokeLinecap="round" />
-              <polyline
-                points={`${h1.x},${h1.y} ${bx},${by} ${h2.x},${h2.y}`}
-                fill="none"
+              <polygon
+                points={pts}
+                fill={fill}
+                fillOpacity={fillOpacity}
                 stroke={stroke}
                 strokeWidth={sw}
-                strokeLinecap="round"
                 strokeLinejoin="round"
               />
             </svg>
           );
         })}
+
+        {/* Eraser white cover: hides the page's own content (and anything
+            drawn on it) exactly as the exported PDF will show it. */}
+        {pageEraseAreas.map((a) => (
+          <div
+            key={a.id}
+            className="absolute bg-white z-[25]"
+            style={pageTransform(a.pdfX, a.pdfY, a.pdfWidth, a.pdfHeight)}
+          />
+        ))}
+        {eraseStamps.map((s, i) => (
+          <div
+            key={`erase-live-${i}`}
+            className="absolute bg-white border border-dashed border-neutral-300 z-[25]"
+            style={{
+              left: s.x - ERASER_STAMP / 2,
+              top: s.y - ERASER_STAMP / 2,
+              width: ERASER_STAMP,
+              height: ERASER_STAMP,
+            }}
+          />
+        ))}
 
         {pageStamps.map((st) => {
           const b = pageTransform(st.pdfX, st.pdfY, st.pdfWidth, st.pdfHeight);
@@ -1006,10 +1233,29 @@ export const PdfViewer: React.FC<PdfViewerProps> = ({
                   interactive ? 'cursor-pointer' : 'pointer-events-none'
                 } ${selected ? 'ring-2 ring-emerald-500' : ''}`}
                 style={box}
-                title={interactive ? 'Click to select · drag the corner to resize' : undefined}
+                title={interactive ? 'Click to edit · drag to move · drag the corner to resize' : undefined}
+                onMouseDown={(e) => {
+                  if (!interactive || !overlay.id) return;
+                  // Stop the page-level handler from clearing the selection,
+                  // then track the gesture as a potential move — the window
+                  // listeners turn it into a drag once it clears 3px.
+                  beginOverlayMove(
+                    e,
+                    overlay,
+                    activeEditingItem && activeEditingItem.id === `reedit-${overlay.id}`
+                      ? activeEditingItem.id
+                      : null,
+                  );
+                }}
                 onClick={(e) => {
                   if (!interactive) return;
                   e.stopPropagation();
+                  // A gesture that became a drag already did its job — the
+                  // follow-up click must not also open the editor.
+                  if (suppressOverlayClickRef.current) {
+                    suppressOverlayClickRef.current = false;
+                    return;
+                  }
                   // Select, then open the editor — every click on an overlay
                   // opens it, so text can be edited a second, third, … time.
                   setSelectedOverlayId(overlay.id);
@@ -1031,13 +1277,15 @@ export const PdfViewer: React.FC<PdfViewerProps> = ({
                     pdfHeight: overlay.pdfHeight,
                     color: overlay.color,
                     // Formatting of the saved overlay seeds the re-edit editor
-                    // (bold/color) so re-opening shows exactly what is drawn.
+                    // (bold/color/opacity) so re-opening shows exactly what is
+                    // drawn.
                     editIsBold: overlay.isBold,
                     editColor: overlay.color,
+                    editOpacity: overlay.opacity,
                   });
                 }}
               >
-                <div className="w-full h-full overflow-hidden" style={{ lineHeight: 1.2 }}>
+                <div className="w-full h-full overflow-hidden" style={{ lineHeight: 1.2, opacity: overlay.opacity ?? 1 }}>
                   <span
                     style={{
                       fontFamily: mapPdfFontToCss(overlay.fontFamily),
@@ -1111,6 +1359,11 @@ export const PdfViewer: React.FC<PdfViewerProps> = ({
             pageWidthPt={pageSize.pdfWidth}
             isNew={activeEditingItem.id.startsWith('new-text-')}
             defaults={textDefaultsRef.current}
+            onMoveStart={
+              editingOverlay
+                ? (e) => beginOverlayMove(e, editingOverlay, activeEditingItem.id)
+                : undefined
+            }
             onSave={(overlay) => {
               textDefaultsRef.current = { fontFamily: overlay.fontFamily, fontSize: overlay.fontSize };
               const id = activeEditingItem.id;
@@ -1127,6 +1380,8 @@ export const PdfViewer: React.FC<PdfViewerProps> = ({
                     fontFamily: overlay.fontFamily,
                     color: overlay.color,
                     isBold: overlay.isBold,
+                    opacity: overlay.opacity,
+                    pdfX: overlay.pdfX,
                     pdfWidth: overlay.pdfWidth,
                     pdfHeight: overlay.pdfHeight,
                     pdfY: overlay.pdfY,
@@ -1183,13 +1438,12 @@ export const PdfViewer: React.FC<PdfViewerProps> = ({
               width: shapeBox.w,
               height: shapeBox.h,
               borderColor: toolColors.shape,
-              backgroundColor:
-                shapeFillEnabled && shapeKind !== 'arrow'
-                  ? shapeFillColor +
-                    Math.round(Math.min(1, Math.max(0, shapeFillOpacity)) * 255)
-                      .toString(16)
-                      .padStart(2, '0')
-                  : 'transparent',
+              backgroundColor: shapeFillEnabled
+                ? shapeFillColor +
+                  Math.round(Math.min(1, Math.max(0, shapeFillOpacity)) * 255)
+                    .toString(16)
+                    .padStart(2, '0')
+                : 'transparent',
             }}
           />
         )}

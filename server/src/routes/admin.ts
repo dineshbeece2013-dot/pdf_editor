@@ -12,6 +12,7 @@ import {
   validateAdminPatch,
 } from '../repositories/users.js';
 import { clearAll, listAll, revenueByCurrency } from '../repositories/payments.js';
+import { listAllPlans, updatePlan, validatePlanPatch } from '../repositories/plans.js';
 import { requireAdmin, requireAuth } from '../middleware/auth.js';
 import { HttpError } from '../middleware/errors.js';
 
@@ -115,6 +116,27 @@ export function adminRouter(db: Database): Router {
       const updated = await cancelSubscription(db, String(req.params.id));
       if (!updated) throw new HttpError(404, 'User not found.');
       res.json({ user: toUserDto(updated) });
+    } catch (err) {
+      next(err);
+    }
+  });
+
+  router.get('/plans', async (_req, res, next) => {
+    try {
+      res.json({ plans: await listAllPlans(db) });
+    } catch (err) {
+      next(err);
+    }
+  });
+
+  router.patch('/plans/:id', async (req, res, next) => {
+    try {
+      const id = String(req.params.id);
+      const validation = validatePlanPatch((req.body ?? {}) as Record<string, unknown>);
+      if (!validation.ok) throw new HttpError(400, validation.error);
+      const updated = await updatePlan(db, id, validation.patch);
+      if (!updated) throw new HttpError(404, 'Plan not found.');
+      res.json({ plan: updated });
     } catch (err) {
       next(err);
     }

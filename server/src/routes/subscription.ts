@@ -2,7 +2,8 @@ import { Router } from 'express';
 import { randomUUID } from 'node:crypto';
 import type { Database } from '../db/index.js';
 import type { AppConfig } from '../config.js';
-import { getPlan, listPlans } from '../plans.js';
+import { planDisplayName } from '../plans.js';
+import { getPlan, listPlans } from '../repositories/plans.js';
 import { loadGatewayConfig, toPublicGatewayConfig } from '../repositories/razorpayConfig.js';
 import {
   createPendingOrder,
@@ -31,8 +32,8 @@ export function subscriptionRouter(db: Database, config: AppConfig): Router {
 
   router.get('/plans', async (_req, res, next) => {
     try {
-      const gateway = await loadGatewayConfig(db, config);
-      res.json({ plans: listPlans(), gateway: toPublicGatewayConfig(gateway) });
+      const [plans, gateway] = await Promise.all([listPlans(db), loadGatewayConfig(db, config)]);
+      res.json({ plans, gateway: toPublicGatewayConfig(gateway) });
     } catch (err) {
       next(err);
     }
@@ -44,7 +45,7 @@ export function subscriptionRouter(db: Database, config: AppConfig): Router {
     rateLimit({ windowMs: 10 * 60_000, max: 20, bucket: 'order' }),
     async (req, res, next) => {
       try {
-        const plan = getPlan(req.body?.planId);
+        const plan = await getPlan(db, req.body?.planId);
         if (!plan) throw new HttpError(400, 'Unknown plan.');
 
         const gateway = await loadGatewayConfig(db, config);
@@ -88,7 +89,7 @@ export function subscriptionRouter(db: Database, config: AppConfig): Router {
           id: randomUUID(),
           userId: req.authUser!.id,
           planId: plan.id,
-          planName: plan.name,
+          planName: planDisplayName(plan),
           amount: plan.price,
           currency: gateway.currency,
           provider: 'razorpay',
@@ -102,7 +103,7 @@ export function subscriptionRouter(db: Database, config: AppConfig): Router {
           amount: razorpayOrder.amount,
           currency: razorpayOrder.currency,
           planId: plan.id,
-          planName: plan.name,
+          planName: planDisplayName(plan),
           description: plan.description,
         });
       } catch (err) {
@@ -164,7 +165,7 @@ export function subscriptionRouter(db: Database, config: AppConfig): Router {
       if (!config.allowDemoPayments) {
         throw new HttpError(403, 'Demo payments are disabled on this server.');
       }
-      const plan = getPlan(req.body?.planId);
+      const plan = await getPlan(db, req.body?.planId);
       if (!plan) throw new HttpError(400, 'Unknown plan.');
 
       const user = req.authUser!;
@@ -173,7 +174,7 @@ export function subscriptionRouter(db: Database, config: AppConfig): Router {
           id: randomUUID(),
           userId: user.id,
           planId: plan.id,
-          planName: plan.name,
+          planName: planDisplayName(plan),
           amount: plan.price,
           currency: plan.currency,
           provider: 'demo',

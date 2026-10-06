@@ -60,8 +60,25 @@ CREATE TABLE IF NOT EXISTS razorpay_config (
   id             integer PRIMARY KEY DEFAULT 1 CHECK (id = 1),
   key_id         text,
   key_secret_enc text,
-  currency       text NOT NULL DEFAULT 'USD',
+  currency       text NOT NULL DEFAULT 'INR',
   updated_at     timestamptz NOT NULL DEFAULT now()
+);
+
+-- Editable plan catalogue. Seeded from DEFAULT_PLANS on boot; an admin can
+-- change price, currency, period, name, description and visibility from the
+-- dashboard. Checkout, grants and the public plans endpoint all read from
+-- here, so the edited price is the price that is charged.
+CREATE TABLE IF NOT EXISTS subscription_plans (
+  id            text PRIMARY KEY,
+  name          text NOT NULL,
+  price         numeric(12,2) NOT NULL CHECK (price > 0),
+  currency      text NOT NULL DEFAULT 'INR' CHECK (currency IN ('INR','USD')),
+  duration_days integer NOT NULL CHECK (duration_days IN (1,7,30,90,365)),
+  description   text NOT NULL DEFAULT '',
+  active        boolean NOT NULL DEFAULT true,
+  sort_order    integer NOT NULL DEFAULT 0,
+  created_at    timestamptz NOT NULL DEFAULT now(),
+  updated_at    timestamptz NOT NULL DEFAULT now()
 );
 
 -- Session store used by connect-pg-simple.

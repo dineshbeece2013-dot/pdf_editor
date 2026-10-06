@@ -1,5 +1,6 @@
 import type { Queryable } from '../db/index.js';
-import { expiryFromNow, getPlan, PLAN_IDS } from '../plans.js';
+import { expiryFromNow } from '../plans.js';
+import { getPlan } from './plans.js';
 
 /** A row as PostgreSQL returns it. `password_hash` never leaves this module. */
 export interface UserRow {
@@ -177,7 +178,7 @@ export function validateAdminPatch(patch: AdminUserPatch): PatchResult {
     if (key === 'plan' && value !== 'free' && value !== 'pro') {
       return { ok: false, error: 'Plan must be "free" or "pro".' };
     }
-    if (key === 'subscriptionPlan' && value !== null && !PLAN_IDS.includes(value as never)) {
+    if (key === 'subscriptionPlan' && value !== null && (typeof value !== 'string' || !value.startsWith('pro-'))) {
       return { ok: false, error: 'Subscription plan must be null or a known plan id.' };
     }
     if (key === 'subscriptionExpiresAt' && value !== null && !Number.isFinite(Number(value))) {
@@ -301,7 +302,7 @@ export async function recordEditForUser(db: Queryable, user: UserRow): Promise<U
  * catalogue, never from anything the client sent.
  */
 export async function activateSubscription(db: Queryable, userId: string, planId: unknown): Promise<UserRow | null> {
-  const plan = getPlan(planId);
+  const plan = await getPlan(db, planId);
   if (!plan) throw new Error('Unknown plan id.');
 
   const { rows } = await db.query<UserRow>(

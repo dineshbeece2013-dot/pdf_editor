@@ -9,6 +9,7 @@ import type {
   ImageOverlay,
   ShapeOverlay,
   StampOverlay,
+  EraseArea,
   ShapeKind,
   StampKind,
   ToolColorKey,
@@ -36,6 +37,7 @@ type DocState = {
   imageOverlays: ImageOverlay[];
   shapes: ShapeOverlay[];
   stamps: StampOverlay[];
+  eraseAreas: EraseArea[];
 };
 
 const HISTORY_LIMIT = 50;
@@ -80,6 +82,8 @@ export function EditorApp() {
   const [imageOverlays, setImageOverlays] = useState<ImageOverlay[]>([]);
   const [shapes, setShapes] = useState<ShapeOverlay[]>([]);
   const [stamps, setStamps] = useState<StampOverlay[]>([]);
+  // White covers the eraser paints over the page's own text/images.
+  const [eraseAreas, setEraseAreas] = useState<EraseArea[]>([]);
 
   const [isSigModalOpen, setIsSigModalOpen] = useState(false);
   const [activeSigDataUrl, setActiveSigDataUrl] = useState<string | null>(null);
@@ -138,7 +142,17 @@ export function EditorApp() {
   // Snapshots are cheap: every setter above keeps state immutable, so each
   // history entry is just a handful of references, not deep copies.
   const docStateRef = useRef<DocState>(null as unknown as DocState);
-  docStateRef.current = { textOverlays, cropSettings, signatures, highlights, drawings, imageOverlays, shapes, stamps };
+  docStateRef.current = {
+    textOverlays,
+    cropSettings,
+    signatures,
+    highlights,
+    drawings,
+    imageOverlays,
+    shapes,
+    stamps,
+    eraseAreas,
+  };
 
   const [history, setHistory] = useState<{ undo: DocState[]; redo: DocState[] }>({
     undo: [],
@@ -164,6 +178,7 @@ export function EditorApp() {
     setImageOverlays(state.imageOverlays);
     setShapes(state.shapes);
     setStamps(state.stamps);
+    setEraseAreas(state.eraseAreas);
   };
 
   const handleUndo = () => {
@@ -207,6 +222,7 @@ export function EditorApp() {
       setImageOverlays([]);
       setShapes([]);
       setStamps([]);
+      setEraseAreas([]);
       setPendingImage(null);
       setCurrentPage(0);
       clearHistory();
@@ -225,6 +241,7 @@ export function EditorApp() {
     setImageOverlays([]);
     setShapes([]);
     setStamps([]);
+    setEraseAreas([]);
     setPendingImage(null);
     setCurrentPage(0);
     clearHistory();
@@ -324,6 +341,15 @@ export function EditorApp() {
     setTextOverlays((prev) => prev.filter((o) => !idSet.has(o.id)));
   };
 
+  // A whole eraser stroke arrives as one batch: commit it as a single
+  // history entry so one Ctrl+Z removes the whole stroke, not one stamp.
+  const handleAddEraseAreas = (areas: EraseArea[]) => {
+    if (areas.length === 0) return;
+    if (!grantEditAccess()) return;
+    pushHistory();
+    setEraseAreas((prev) => [...prev, ...areas]);
+  };
+
   const handleClearAnnotations = () => {
     if (!grantEditAccess()) return;
     pushHistory();
@@ -335,6 +361,7 @@ export function EditorApp() {
     setSignatures((prev) => prev.filter((s) => s.pageIndex !== idx));
     setImageOverlays((prev) => prev.filter((img) => img.pageIndex !== idx));
     setTextOverlays((prev) => prev.filter((o) => o.pageIndex !== idx));
+    setEraseAreas((prev) => prev.filter((a) => a.pageIndex !== idx));
   };
 
   const handleImageUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -379,6 +406,7 @@ export function EditorApp() {
         stamps,
         highlights,
         drawings,
+        eraseAreas,
       });
       const blob = new Blob([modifiedBytes as any], { type: 'application/pdf' });
       const url = URL.createObjectURL(blob);
@@ -524,6 +552,8 @@ export function EditorApp() {
           onAddShape={handleAddShape}
           onAddStamp={handleAddStamp}
           onEraseItems={handleEraseItems}
+          eraseAreas={eraseAreas}
+          onAddEraseAreas={handleAddEraseAreas}
           shapeKind={shapeKind}
           shapeFillEnabled={shapeFillEnabled}
           shapeFillColor={shapeFillColor}

@@ -2,7 +2,7 @@ import React, { useEffect, useRef, useState } from 'react';
 import type { DetectedTextItem, EditedTextOverlay } from '../types/pdf';
 import { cssFontFamily, detectFontId, FONT_GROUPS, isValidFontId } from '../services/fontCatalog';
 import { wrapLines } from '../utils/wrapText';
-import { Check, X, Sparkles } from 'lucide-react';
+import { Check, X, Sparkles, Move } from 'lucide-react';
 
 interface TextEditInlineProps {
   item: DetectedTextItem;
@@ -15,6 +15,12 @@ interface TextEditInlineProps {
   defaults?: { fontFamily?: string; fontSize?: number };
   /** Page width in PDF points — the box auto-fits up to the page edge. */
   pageWidthPt?: number;
+  /**
+   * Present only while editing an ALREADY SAVED box: starts a drag that
+   * moves the box anywhere on the page. The editor popup sits above the box,
+   * so this header grip is the reliable way to move it while editing.
+   */
+  onMoveStart?: (e: React.MouseEvent) => void;
 }
 
 export const TextEditInline: React.FC<TextEditInlineProps> = ({
@@ -25,6 +31,7 @@ export const TextEditInline: React.FC<TextEditInlineProps> = ({
   isNew,
   defaults,
   pageWidthPt,
+  onMoveStart,
 }) => {
   const [text, setText] = useState(item.str);
   const textareaRef = useRef<HTMLTextAreaElement | null>(null);
@@ -50,6 +57,11 @@ export const TextEditInline: React.FC<TextEditInlineProps> = ({
   });
   const [textColor, setTextColor] = useState(item.editColor ?? item.color ?? '#000000');
   const [isBold, setIsBold] = useState(item.editIsBold ?? false);
+  // Text opacity as a whole percent: 100 by default (fully opaque); the user
+  // can lower it when they want the box to show the page through it.
+  const [opacity, setOpacity] = useState(() =>
+    Math.round(Math.min(100, Math.max(10, (item.editOpacity ?? 1) * 100))),
+  );
 
   const handleSave = () => {
     if (isNew && !text.trim()) {
@@ -106,6 +118,7 @@ export const TextEditInline: React.FC<TextEditInlineProps> = ({
       fontFamily: fontFamily,
       color: textColor,
       isBold: isBold,
+      opacity: opacity / 100,
       coverOriginal: !isNew,
       // New text gets no white cover patch — only edits mask the original.
       ...(isNew
@@ -138,9 +151,24 @@ export const TextEditInline: React.FC<TextEditInlineProps> = ({
           <Sparkles className="w-3 h-3" />
           <span>{isNew ? 'New text' : `Detected: ${item.originalFontName || 'Helvetica'} (${Math.round(item.fontSize)}pt)`}</span>
         </div>
-        <button onClick={onCancel} className="text-neutral-400 hover:text-neutral-600">
-          <X className="w-3.5 h-3.5" />
-        </button>
+        <div className="flex items-center gap-1">
+          {onMoveStart && (
+            <button
+              type="button"
+              title="Drag to move the text box anywhere on the page"
+              onMouseDown={(e) => {
+                e.preventDefault();
+                onMoveStart(e);
+              }}
+              className="cursor-move text-neutral-400 hover:text-emerald-600 px-1"
+            >
+              <Move className="w-3.5 h-3.5" />
+            </button>
+          )}
+          <button onClick={onCancel} className="text-neutral-400 hover:text-neutral-600">
+            <X className="w-3.5 h-3.5" />
+          </button>
+        </div>
       </div>
 
       <div className="flex items-center gap-1 mb-2 bg-neutral-50 p-1 rounded-md">
@@ -189,6 +217,23 @@ export const TextEditInline: React.FC<TextEditInlineProps> = ({
           className="w-6 h-6 border-0 p-0 rounded cursor-pointer bg-transparent"
           title="Text Color"
         />
+      </div>
+
+      {/* Opacity: 100% by default (solid), reducible when the user wants the
+          page to show through the text box. */}
+      <div className="flex items-center gap-2 mb-2 px-0.5">
+        <span className="text-[11px] font-medium text-neutral-500 select-none">Opacity</span>
+        <input
+          type="range"
+          min={10}
+          max={100}
+          step={5}
+          value={opacity}
+          onChange={(e) => setOpacity(Number(e.target.value))}
+          className="flex-1 accent-emerald-600"
+          title={`Text opacity ${opacity}%`}
+        />
+        <span className="w-9 text-right tabular-nums text-[11px] text-neutral-500">{opacity}%</span>
       </div>
 
       <textarea

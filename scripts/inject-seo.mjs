@@ -112,7 +112,7 @@ function body(site, legalNav) {
   const pricing = site.PRICING.map(
     (p) => `        <div>
           <h3>${esc(p.name)}</h3>
-          <p><span aria-hidden="true">₹</span>${esc(p.price)}</p>
+          <p><span aria-hidden="true">${p.currency === 'INR' ? '₹' : '$'}</span>${esc(p.price)}</p>
           <p>${esc(p.description)}</p>
         </div>`,
   ).join('\n');
@@ -186,7 +186,7 @@ function contactSections(site) {
     .join('\n');
 
   const pricing = site.PRICING.map(
-    (p) => `          <li>${esc(p.name)} — ${esc(p.description)}: ₹${esc(p.price)}</li>`,
+    (p) => `          <li>${esc(p.name)} — ${esc(p.description)}: ${p.currency === 'INR' ? '₹' : '$'}${esc(p.price)}</li>`,
   ).join('\n');
 
   return `      <section>

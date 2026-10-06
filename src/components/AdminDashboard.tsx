@@ -5,6 +5,7 @@ import {
   Crown,
   KeyRound,
   LayoutDashboard,
+  Tags,
   Users as UsersIcon,
 } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
@@ -12,16 +13,18 @@ import { UserManagement } from './UserManagement';
 import { SubscriptionTable } from './SubscriptionTable';
 import { PaymentHistory } from './PaymentHistory';
 import { RazorpayConfigPanel } from './RazorpayConfigPanel';
+import { PlanEditorPanel } from './PlanEditorPanel';
 
 export interface AdminDashboardProps {
   onClose: () => void;
 }
 
-type AdminTab = 'users' | 'subscriptions' | 'payments' | 'razorpay';
+type AdminTab = 'users' | 'subscriptions' | 'plans' | 'payments' | 'razorpay';
 
 const TABS: { id: AdminTab; label: string; icon: React.ReactNode }[] = [
   { id: 'users', label: 'Users', icon: <UsersIcon className="w-4 h-4" /> },
   { id: 'subscriptions', label: 'Subscriptions', icon: <Crown className="w-4 h-4" /> },
+  { id: 'plans', label: 'Plans', icon: <Tags className="w-4 h-4" /> },
   { id: 'payments', label: 'Payments', icon: <CreditCard className="w-4 h-4" /> },
   { id: 'razorpay', label: 'Razorpay', icon: <KeyRound className="w-4 h-4" /> },
 ];
@@ -90,6 +93,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ onClose }) => {
           <div className="max-w-5xl mx-auto">
             {tab === 'users' && <UserManagement />}
             {tab === 'subscriptions' && <SubscriptionTable />}
+            {tab === 'plans' && <PlanEditorPanel />}
             {tab === 'payments' && <PaymentHistory />}
             {tab === 'razorpay' && <RazorpayConfigPanel />}
           </div>

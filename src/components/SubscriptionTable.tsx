@@ -3,7 +3,7 @@ import { Ban, Calendar, RefreshCw, ShieldCheck } from 'lucide-react';
 import { adminApi, type AppUser } from '../services/localAuth';
 import { messageFor } from '../services/api';
 import { PlanDistributionChart } from './PlanDistributionChart';
-import { getSubscriptionStatus, type PlanId } from '../services/subscription';
+import { getSubscriptionStatus } from '../services/subscription';
 
 /**
  * Admin view of every account's subscription with quick grant/cancel actions.
@@ -41,7 +41,7 @@ export const SubscriptionTable: React.FC = () => {
     }
   };
 
-  const handleGrant = (target: AppUser, planId: PlanId) =>
+  const handleGrant = (target: AppUser, planId: string) =>
     void run(() => adminApi.grantSubscription(target.id, planId));
 
   const handleCancel = (target: AppUser) => void run(() => adminApi.cancelSubscription(target.id));
@@ -126,11 +126,11 @@ export const SubscriptionTable: React.FC = () => {
                     <div className="flex items-center gap-1.5">
                       <button
                         onClick={() => handleGrant(u, 'pro-daily')}
-                        title="Grant a day of Pro"
+                        title="Grant a week of Pro"
                         className="flex items-center gap-1 px-2 py-1 rounded-md bg-emerald-50 text-emerald-700 text-[11px] font-semibold hover:bg-emerald-100"
                       >
                         <Calendar className="w-3 h-3" />
-                        1d
+                        7d
                       </button>
                       <button
                         onClick={() => handleGrant(u, 'pro-monthly')}

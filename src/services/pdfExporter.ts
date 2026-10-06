@@ -2,7 +2,7 @@ import { PDFDocument, rgb, StandardFonts } from 'pdf-lib';
 import type { PDFFont } from 'pdf-lib';
 import * as fontkit from '@pdf-lib/fontkit';
 import { getFontDef, type StandardFontFamily } from './fontCatalog';
-import type { EditedTextOverlay, PageCropSetting, SignatureItem, HighlightArea, FreehandDrawing, ImageOverlay, ShapeOverlay, StampOverlay } from '../types/pdf';
+import type { EditedTextOverlay, PageCropSetting, SignatureItem, HighlightArea, FreehandDrawing, ImageOverlay, ShapeOverlay, StampOverlay, EraseArea } from '../types/pdf';
 import { wrapLines } from '../utils/wrapText';
 
 export interface ExportPdfOptions {
@@ -15,6 +15,8 @@ export interface ExportPdfOptions {
   stamps: StampOverlay[];
   highlights: HighlightArea[];
   drawings: FreehandDrawing[];
+  /** Eraser white covers — drawn last so they mask everything beneath them. */
+  eraseAreas: EraseArea[];
 }
 
 export function hexToRgb(hex: string) {
@@ -41,6 +43,7 @@ export async function exportModifiedPdf(options: ExportPdfOptions): Promise<Uint
     stamps,
     highlights,
     drawings,
+    eraseAreas,
   } = options;
 
   const pdfDoc = await PDFDocument.load(originalPdfBytes);
@@ -143,6 +146,8 @@ export async function exportModifiedPdf(options: ExportPdfOptions): Promise<Uint
           size: size,
           font: font,
           color: color,
+          // 1 (100%) unless the user lowered the box's opacity slider.
+          opacity: overlay.opacity ?? 1,
         });
       });
     }
@@ -196,7 +201,7 @@ export async function exportModifiedPdf(options: ExportPdfOptions): Promise<Uint
     }
   }
 
-  // 4c. Shape annotations (ellipse / rectangle / arrow)
+  // 4c. Shape annotations (ellipse / rectangle / triangle)
   for (const sh of shapes) {
     const page = pages[sh.pageIndex];
     if (!page) continue;
@@ -225,23 +230,38 @@ export async function exportModifiedPdf(options: ExportPdfOptions): Promise<Uint
         ...(fill ? { color: fill, opacity: fillOpacity } : {}),
       });
     } else if (sh.points.length === 2) {
-      // arrow: shaft + two head strokes
+      // Triangle: apex at the drag end (b), base on the opposite side — the
+      // same orientation rule the on-screen renderer applies. PDF y grows
+      // upward, so the screen test `by >= ay` (apex down) is `b.y <= a.y`.
       const [a, b] = sh.points;
-      page.drawLine({ start: a, end: b, thickness, color: stroke });
-      const ang = Math.atan2(b.y - a.y, b.x - a.x);
-      const dist = Math.hypot(b.x - a.x, b.y - a.y);
-      const head = Math.min(12, dist * 0.4);
-      page.drawLine({
-        start: b,
-        end: { x: b.x - head * Math.cos(ang - 0.45), y: b.y - head * Math.sin(ang - 0.45) },
-        thickness,
-        color: stroke,
-      });
-      page.drawLine({
-        start: b,
-        end: { x: b.x - head * Math.cos(ang + 0.45), y: b.y - head * Math.sin(ang + 0.45) },
-        thickness,
-        color: stroke,
+      const { pdfX, pdfY, pdfWidth, pdfHeight } = sh;
+      const right = pdfX + pdfWidth;
+      const top = pdfY + pdfHeight;
+      const midX = pdfX + pdfWidth / 2;
+      const midY = pdfY + pdfHeight / 2;
+      const dy = b.y - a.y;
+      const vertices =
+        Math.abs(b.x - a.x) >= Math.abs(dy)
+          ? b.x >= a.x
+            ? [{ x: pdfX, y: top }, { x: pdfX, y: pdfY }, { x: right, y: midY }]
+            : [{ x: right, y: top }, { x: right, y: pdfY }, { x: pdfX, y: midY }]
+          : dy <= 0 // dragged downward — apex on the bottom edge
+            ? [{ x: pdfX, y: top }, { x: right, y: top }, { x: midX, y: pdfY }]
+            : [{ x: pdfX, y: pdfY }, { x: right, y: pdfY }, { x: midX, y: top }];
+      // drawSvgPath translates to (x, y) then flips Y because the SVG axis
+      // points down. Passing origin (0, top) and vertices as (vx, top - vy)
+      // maps PDF coordinates back exactly, keeping every y non-negative.
+      const path =
+        `M ${vertices[0].x} ${top - vertices[0].y}` +
+        ` L ${vertices[1].x} ${top - vertices[1].y}` +
+        ` L ${vertices[2].x} ${top - vertices[2].y} Z`;
+      page.drawSvgPath(path, {
+        x: 0,
+        y: top,
+        ...(fill ? { color: fill, opacity: fillOpacity } : {}),
+        borderColor: stroke,
+        borderWidth: thickness,
+        borderOpacity: 1,
       });
     }
   }
@@ -293,6 +313,20 @@ export async function exportModifiedPdf(options: ExportPdfOptions): Promise<Uint
         opacity: draw.opacity || 1,
       });
     }
+  }
+
+  // 6. Eraser covers — LAST, so they mask text, images, highlights,
+  // shapes… everything beneath them, exactly as the screen shows.
+  for (const area of eraseAreas) {
+    const page = pages[area.pageIndex];
+    if (!page) continue;
+    page.drawRectangle({
+      x: area.pdfX,
+      y: area.pdfY,
+      width: area.pdfWidth,
+      height: area.pdfHeight,
+      color: rgb(1, 1, 1),
+    });
   }
 
   return await pdfDoc.save();

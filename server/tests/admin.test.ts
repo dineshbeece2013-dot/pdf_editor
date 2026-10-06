@@ -126,6 +126,53 @@ describe('admin user management', () => {
   });
 });
 
+describe('admin plan catalogue', () => {
+  it('seeds daily Rs 19 and monthly Rs 99 in INR', async () => {
+    const admin = await loginAdmin();
+
+    const res = await admin.get('/api/admin/plans');
+    expect(res.status).toBe(200);
+    const byId = Object.fromEntries(res.body.plans.map((p: { id: string }) => [p.id, p]));
+    expect(byId['pro-daily'].price).toBe(19);
+    expect(byId['pro-daily'].currency).toBe('INR');
+    expect(byId['pro-daily'].durationDays).toBe(1);
+    expect(byId['pro-monthly'].price).toBe(99);
+    expect(byId['pro-monthly'].currency).toBe('INR');
+    expect(byId['pro-monthly'].durationDays).toBe(30);
+  });
+
+  it('lets an admin change price, currency and period', async () => {
+    const admin = await loginAdmin();
+
+    const res = await admin.patch('/api/admin/plans/pro-monthly', {
+      price: 149,
+      currency: 'INR',
+      durationDays: 30,
+    });
+    expect(res.status).toBe(200);
+    expect(res.body.plan.price).toBe(149);
+
+    const publicPlans = await h.client().get('/api/subscription/plans');
+    const monthly = publicPlans.body.plans.find((p: { id: string }) => p.id === 'pro-monthly');
+    expect(monthly.price).toBe(149);
+  });
+
+  it('rejects bad prices, currencies and periods', async () => {
+    const admin = await loginAdmin();
+
+    for (const patch of [{ price: 0 }, { price: -5 }, { currency: 'EUR' }, { durationDays: 45 }, {}]) {
+      const res = await admin.patch('/api/admin/plans/pro-monthly', patch);
+      expect(res.status).toBe(400);
+    }
+  });
+
+  it('keeps plan edits out of reach of a normal user', async () => {
+    const { client } = await registerUser('user@example.com');
+    expect((await client.get('/api/admin/plans')).status).toBe(403);
+    expect((await client.patch('/api/admin/plans/pro-monthly', { price: 1 })).status).toBe(403);
+  });
+});
+
 describe('edit allowance is decided by the server', () => {
   it('gives a free account exactly one edit per day', async () => {
     const { client } = await registerUser('free@example.com');

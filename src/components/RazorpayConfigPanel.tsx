@@ -9,7 +9,7 @@ const FIELDS: { key: 'keyId' | 'currency'; label: string; hint: string }[] = [
   { key: 'currency', label: 'Currency', hint: 'e.g. INR or USD' },
 ];
 
-const EMPTY: PublicGatewayConfig = { keyId: '', currency: 'USD', hasSecret: false, isConfigured: false };
+const EMPTY: PublicGatewayConfig = { keyId: '', currency: 'INR', hasSecret: false, isConfigured: false };
 
 /**
  * Admin editor for the Razorpay gateway keys.

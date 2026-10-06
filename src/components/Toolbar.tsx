@@ -18,7 +18,7 @@ import {
   ChevronDown,
   Circle,
   Square,
-  ArrowUpRight,
+  Triangle,
   Sticker,
   Image as ImageIcon,
   Check,
@@ -272,7 +272,7 @@ export const Toolbar: React.FC<ToolbarProps> = ({
           {/* Eraser dropdown */}
           <button
             onClick={(e) => toggleMenu('erase', 224, e)}
-            title="Eraser options"
+            title="Eraser — rub out text, images and annotations"
             className={toolCls('erase')}
           >
             <Eraser className="w-4 h-4" />
@@ -338,7 +338,7 @@ export const Toolbar: React.FC<ToolbarProps> = ({
             }}
             className="w-full text-left px-3 py-2 text-neutral-700 hover:bg-neutral-50 flex items-center gap-2 font-medium"
           >
-            <Eraser className="w-4 h-4 text-neutral-500" /> Erase annotations
+            <Eraser className="w-4 h-4 text-neutral-500" /> Erase content & marks
           </button>
           <button
             onClick={() => {
@@ -393,7 +393,7 @@ export const Toolbar: React.FC<ToolbarProps> = ({
             [
               { k: 'ellipse', label: 'Ellipse', Icon: Circle },
               { k: 'rectangle', label: 'Rectangle', Icon: Square },
-              { k: 'arrow', label: 'Arrow', Icon: ArrowUpRight },
+              { k: 'triangle', label: 'Triangle', Icon: Triangle },
             ] as const
           ).map(({ k, label, Icon }) => (
             <button
@@ -450,7 +450,7 @@ export const Toolbar: React.FC<ToolbarProps> = ({
               </div>
             )}
             <p className="mt-1.5 text-[10px] leading-snug text-neutral-400">
-              Applies to new ellipses and rectangles (not arrows).
+              Applies to new ellipses, rectangles and triangles.
             </p>
           </div>
         </div>

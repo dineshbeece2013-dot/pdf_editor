@@ -149,7 +149,7 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
     razorpay: {
       keyId: readString(env, 'RAZORPAY_KEY_ID'),
       keySecret: readString(env, 'RAZORPAY_KEY_SECRET'),
-      currency: readString(env, 'RAZORPAY_CURRENCY', 'USD') || 'USD',
+      currency: readString(env, 'RAZORPAY_CURRENCY', 'INR') || 'INR',
     },
     allowDemoPayments,
   };

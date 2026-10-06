@@ -30,6 +30,15 @@ export type PlanId = keyof typeof PLAN_LABELS;
 export const PLAN_ORDER: PlanId[] = ['pro-daily', 'pro-monthly'];
 
 /**
+ * Plan ids that have been retired from the catalogue but can still exist on
+ * stored subscriptions or payment rows. They keep their old label so an
+ * existing subscriber never sees a raw id in the UI.
+ */
+const LEGACY_PLAN_LABELS: Record<string, string> = {
+  'pro-weekly': 'Weekly',
+};
+
+/**
  * A human label for a stored plan id.
  *
  * Falls back to the raw id for anything unrecognised, so a subscription bought
@@ -37,10 +46,10 @@ export const PLAN_ORDER: PlanId[] = ['pro-daily', 'pro-monthly'];
  */
 export function planLabel(id: string | null | undefined): string | null {
   if (!id) return null;
-  return PLAN_LABELS[id as PlanId] ?? id;
+  return PLAN_LABELS[id as PlanId] ?? LEGACY_PLAN_LABELS[id] ?? id;
 }
 
-/** Format an amount for display, e.g. { price: 99, currency: 'INR' } -> "₹99". */
+/** Format an amount for display, e.g. { price: 3, currency: 'USD' } -> "$3". */
 export function formatPrice(plan: Pick<PlanSummary, 'price' | 'currency'>): string {
   return plan.currency === 'INR' ? `\u20b9${plan.price}` : `$${plan.price}`;
 }

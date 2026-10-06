@@ -1,10 +1,14 @@
 import type { Queryable } from './db/index.js';
 import { SCHEMA_SQL } from './db/schema.js';
+import { ensureDefaultPlans } from './repositories/plans.js';
 
 /**
  * Apply the schema. Every statement is `IF NOT EXISTS`, so this is safe to run
  * on every boot — that is what makes it a migration rather than a one-off.
+ * After the tables exist, the plan catalogue is seeded without overwriting an
+ * admin's edits.
  */
 export async function runMigrations(db: Queryable): Promise<void> {
   await db.query(SCHEMA_SQL);
+  await ensureDefaultPlans(db);
 }

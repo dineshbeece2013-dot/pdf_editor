@@ -121,6 +121,7 @@ describe('subscription orders are priced server-side', () => {
     const res = await client.post('/api/subscription/order', { planId: 'pro-daily' });
     expect(res.status).toBe(201);
     expect(res.body.amount).toBe(1900);
+    expect(res.body.currency).toBe('INR');
   });
 
   it('refuses to charge when the gateway currency is not the plan currency', async () => {
@@ -261,7 +262,7 @@ describe('demo payments', () => {
 
   it('refuses a retired plan id', async () => {
     const { client } = await registerUser();
-    const res = await client.post('/api/subscription/demo', { planId: 'pro-weekly' });
+    const res = await client.post('/api/subscription/demo', { planId: 'pro-yearly' });
     expect(res.status).toBe(400);
     expect(res.body.error).toMatch(/Unknown plan/);
   });

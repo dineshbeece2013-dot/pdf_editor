@@ -6,7 +6,6 @@ import {
   PLAN_ORDER,
   formatPrice,
   planLabel,
-  type PlanId,
   type PlanSummary,
 } from '../services/subscription';
 import { subscriptionApi, startRazorpayCheckout } from '../services/razorpay';
@@ -31,7 +30,7 @@ export interface UpgradeModalProps {
   onClose: () => void;
   /** Optional headline shown when the modal opens due to the daily limit. */
   reason?: string;
-  onSubscribed?: (planId: PlanId) => void;
+  onSubscribed?: (planId: string) => void;
 }
 
 const FEATURES = [
@@ -47,7 +46,7 @@ const FEATURES = [
  */
 export const UpgradeModal: React.FC<UpgradeModalProps> = ({ isOpen, onClose, reason, onSubscribed }) => {
   const { user, applyServerUser } = useAuth();
-  const [selected, setSelected] = useState<PlanId>('pro-monthly');
+  const [selected, setSelected] = useState<string>('pro-monthly');
   const [status, setStatus] = useState<'idle' | 'processing' | 'error' | 'success'>('idle');
   const [message, setMessage] = useState('');
   const [gatewayReady, setGatewayReady] = useState<boolean | null>(null);
@@ -159,7 +158,7 @@ export const UpgradeModal: React.FC<UpgradeModalProps> = ({ isOpen, onClose, rea
           </p>
 
           <div className="grid sm:grid-cols-2 gap-3">
-            {PLAN_ORDER.map((id) => {
+            {(plans ? plans.map((p) => p.id) : ([...PLAN_ORDER] as string[])).map((id) => {
               const p = plansById.get(id);
               const active = selected === id;
               return (
@@ -179,7 +178,7 @@ export const UpgradeModal: React.FC<UpgradeModalProps> = ({ isOpen, onClose, rea
                       <Crown className={'w-4 h-4 ' + (active ? 'text-emerald-600' : 'text-neutral-400')} />
                       {planLabel(id)}
                     </span>
-                    {id === 'pro-monthly' && (
+                    {plansById.get(id)?.durationDays === 30 && (
                       <span className="text-[10px] font-bold uppercase tracking-wide bg-emerald-600 text-white px-2 py-0.5 rounded-full">
                         Best value
                       </span>
@@ -190,7 +189,13 @@ export const UpgradeModal: React.FC<UpgradeModalProps> = ({ isOpen, onClose, rea
                       {p ? formatPrice(p) : <span className="text-neutral-300">&mdash;</span>}
                     </span>
                     <span className="text-xs text-neutral-500">
-                      {p ? (p.durationDays === 1 ? '/day' : '/month') : ''}
+                      {p
+                        ? p.durationDays === 1
+                          ? '/day'
+                          : p.durationDays === 7
+                            ? '/week'
+                            : '/month'
+                        : ''}
                     </span>
                   </div>
                   <p className="text-xs text-neutral-500 mt-1">{p?.description ?? ''}</p>
