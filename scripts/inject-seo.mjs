@@ -243,6 +243,9 @@ function legalPage(
     <title>${esc(title)} — ${esc(site.SITE_NAME)}</title>
     <meta name="description" content="${esc(description)}" />
     <link rel="canonical" href="${esc(site.SITE_URL)}${esc(path)}" />
+    <link rel="icon" type="image/png" sizes="96x96" href="/favicon.png" />
+    <link rel="icon" href="/favicon.ico" sizes="48x48" />
+    <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
     <meta name="robots" content="index, follow" />${styleTag}
   </head>
   <body class="bg-white">
