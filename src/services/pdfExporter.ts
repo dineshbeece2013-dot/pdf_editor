@@ -1,9 +1,10 @@
-import { PDFDocument, rgb, StandardFonts } from 'pdf-lib';
+import { PDFDocument, rgb, StandardFonts, degrees } from 'pdf-lib';
 import type { PDFFont } from 'pdf-lib';
 import * as fontkit from '@pdf-lib/fontkit';
 import { getFontDef, type StandardFontFamily } from './fontCatalog';
 import type { EditedTextOverlay, PageCropSetting, SignatureItem, HighlightArea, FreehandDrawing, ImageOverlay, ShapeOverlay, StampOverlay, EraseArea } from '../types/pdf';
 import { wrapLines } from '../utils/wrapText';
+import { normalizeRotation } from '../utils/pageCoords';
 
 export interface ExportPdfOptions {
   originalPdfBytes: Uint8Array;
@@ -17,6 +18,8 @@ export interface ExportPdfOptions {
   drawings: FreehandDrawing[];
   /** Eraser white covers — drawn last so they mask everything beneath them. */
   eraseAreas: EraseArea[];
+  /** Extra clockwise rotation per page in degrees (0/90/180/270). */
+  pageRotations?: Record<number, number>;
 }
 
 export function hexToRgb(hex: string) {
@@ -44,6 +47,7 @@ export async function exportModifiedPdf(options: ExportPdfOptions): Promise<Uint
     highlights,
     drawings,
     eraseAreas,
+    pageRotations,
   } = options;
 
   const pdfDoc = await PDFDocument.load(originalPdfBytes);
@@ -101,6 +105,18 @@ export async function exportModifiedPdf(options: ExportPdfOptions): Promise<Uint
       page.setCropBox(crop.x, crop.y, crop.width, crop.height);
       page.setMediaBox(crop.x, crop.y, crop.width, crop.height);
     }
+  }
+
+  // 1b. Page Rotation — the extra clockwise turn chosen in the editor, added
+  // on top of whatever /Rotate the source page already carries. Content and
+  // overlay coordinates (like the crop box above) live in the page's own
+  // unrotated space, so viewers turn the finished sheet together: what the
+  // user saw on screen is what comes back out of the export.
+  for (let i = 0; i < pages.length; i++) {
+    const extra = pageRotations?.[i];
+    if (!extra) continue;
+    const page = pages[i];
+    page.setRotation(degrees(normalizeRotation(page.getRotation().angle + extra)));
   }
 
   // 2. Text Redactions & Overlays

@@ -19,6 +19,7 @@ import { Toolbar } from './components/Toolbar';
 import { PdfViewer } from './components/PdfViewer';
 import { SignaturePadModal } from './components/SignaturePadModal';
 import { createSamplePdf, exportModifiedPdf } from './services/pdfExporter';
+import { normalizeRotation } from './utils/pageCoords';
 import { ChevronDown, ChevronLeft, ChevronRight, ZoomIn, ZoomOut } from 'lucide-react';
 import { useAuth } from './context/AuthContext';
 import { AccountMenu } from './components/AccountMenu';
@@ -38,6 +39,8 @@ type DocState = {
   shapes: ShapeOverlay[];
   stamps: StampOverlay[];
   eraseAreas: EraseArea[];
+  /** Extra clockwise rotation per page in degrees (0/90/180/270). */
+  pageRotations: Record<number, number>;
 };
 
 const HISTORY_LIMIT = 50;
@@ -84,6 +87,8 @@ export function EditorApp() {
   const [stamps, setStamps] = useState<StampOverlay[]>([]);
   // White covers the eraser paints over the page's own text/images.
   const [eraseAreas, setEraseAreas] = useState<EraseArea[]>([]);
+  // Extra clockwise rotation per page (degrees) — part of the undoable doc.
+  const [pageRotations, setPageRotations] = useState<Record<number, number>>({});
 
   const [isSigModalOpen, setIsSigModalOpen] = useState(false);
   const [activeSigDataUrl, setActiveSigDataUrl] = useState<string | null>(null);
@@ -152,6 +157,7 @@ export function EditorApp() {
     shapes,
     stamps,
     eraseAreas,
+    pageRotations,
   };
 
   const [history, setHistory] = useState<{ undo: DocState[]; redo: DocState[] }>({
@@ -179,6 +185,7 @@ export function EditorApp() {
     setShapes(state.shapes);
     setStamps(state.stamps);
     setEraseAreas(state.eraseAreas);
+    setPageRotations(state.pageRotations);
   };
 
   const handleUndo = () => {
@@ -198,6 +205,23 @@ export function EditorApp() {
     setHistory({
       undo: [...history.undo, docStateRef.current].slice(-HISTORY_LIMIT),
       redo: history.redo.slice(0, -1),
+    });
+  };
+
+  /**
+   * Rotate the current page by ±90° (clockwise for a positive delta). One
+   * undo step per click, and rotating back to upright drops the entry so an
+   * untouched page exports with no extra /Rotate at all.
+   */
+  const handleRotatePage = (delta: number) => {
+    if (!grantEditAccess()) return;
+    pushHistory();
+    setPageRotations((prev) => {
+      const next = { ...prev };
+      const value = normalizeRotation((next[currentPage] ?? 0) + delta);
+      if (value === 0) delete next[currentPage];
+      else next[currentPage] = value;
+      return next;
     });
   };
 
@@ -223,6 +247,7 @@ export function EditorApp() {
       setShapes([]);
       setStamps([]);
       setEraseAreas([]);
+      setPageRotations({});
       setPendingImage(null);
       setCurrentPage(0);
       clearHistory();
@@ -242,6 +267,7 @@ export function EditorApp() {
     setShapes([]);
     setStamps([]);
     setEraseAreas([]);
+    setPageRotations({});
     setPendingImage(null);
     setCurrentPage(0);
     clearHistory();
@@ -407,6 +433,7 @@ export function EditorApp() {
         highlights,
         drawings,
         eraseAreas,
+        pageRotations,
       });
       const blob = new Blob([modifiedBytes as any], { type: 'application/pdf' });
       const url = URL.createObjectURL(blob);
@@ -507,6 +534,8 @@ export function EditorApp() {
         onClearAnnotations={handleClearAnnotations}
         toolColors={toolColors}
         onSetToolColor={handleSetToolColor}
+        pageRotation={pageRotations[currentPage] ?? 0}
+        onRotatePage={handleRotatePage}
         accountSlot={
           <AccountMenu
             onOpenUpgrade={() => openUpgrade()}
@@ -554,6 +583,7 @@ export function EditorApp() {
           onEraseItems={handleEraseItems}
           eraseAreas={eraseAreas}
           onAddEraseAreas={handleAddEraseAreas}
+          pageRotations={pageRotations}
           shapeKind={shapeKind}
           shapeFillEnabled={shapeFillEnabled}
           shapeFillColor={shapeFillColor}

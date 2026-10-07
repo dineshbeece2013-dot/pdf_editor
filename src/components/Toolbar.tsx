@@ -27,6 +27,8 @@ import {
   Trash2,
   FileText,
   Palette,
+  RotateCcw,
+  RotateCw,
 } from 'lucide-react';
 
 export interface ToolbarProps {
@@ -58,6 +60,10 @@ export interface ToolbarProps {
   onClearAnnotations: () => void;
   toolColors: ToolColors;
   onSetToolColor: (key: ToolColorKey, color: string) => void;
+  /** Extra rotation of the current page in degrees (0/90/180/270, CW). */
+  pageRotation: number;
+  /** Rotate the current page by ±90° (positive = clockwise). */
+  onRotatePage: (delta: number) => void;
   /** Optional account/subscription control rendered at the top-right. */
   accountSlot?: React.ReactNode;
 }
@@ -108,6 +114,8 @@ export const Toolbar: React.FC<ToolbarProps> = ({
   onClearAnnotations,
   toolColors,
   onSetToolColor,
+  pageRotation,
+  onRotatePage,
   accountSlot,
 }) => {
   const [openMenu, setOpenMenu] = useState<DropdownMenu | null>(null);
@@ -321,6 +329,30 @@ export const Toolbar: React.FC<ToolbarProps> = ({
               className="w-3.5 h-3.5 rounded-full border border-black/15"
               style={{ backgroundColor: toolColors[colorTarget] }}
             />
+          </button>
+
+          <Divider />
+
+          {/* Page rotation — one 90° step per click, undoable like any edit.
+              The angle badge only appears once the page has been turned. */}
+          <button
+            onClick={() => onRotatePage(-90)}
+            title={`Rotate page counter-clockwise${pageRotation ? ` (currently ${pageRotation}°)` : ''}`}
+            className={ghostCls}
+          >
+            <RotateCcw className="w-4 h-4" />
+          </button>
+          <button
+            onClick={() => onRotatePage(90)}
+            title={`Rotate page clockwise${pageRotation ? ` (currently ${pageRotation}°)` : ''}`}
+            className={ghostCls}
+          >
+            <RotateCw className="w-4 h-4" />
+            {pageRotation > 0 && (
+              <span className="ml-0.5 text-[10px] font-semibold tabular-nums text-emerald-600">
+                {pageRotation}°
+              </span>
+            )}
           </button>
         </div>
       </div>

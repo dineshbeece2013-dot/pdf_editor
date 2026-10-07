@@ -18,6 +18,7 @@ import type {
 } from '../types/pdf';
 import { CropOverlay } from './CropOverlay';
 import { TextEditInline } from './TextEditInline';
+import { normalizeRotation, screenToPageDelta, screenToPagePoint } from '../utils/pageCoords';
 
 export interface PdfViewerProps {
   pdfBytes: Uint8Array | null;
@@ -62,6 +63,8 @@ export interface PdfViewerProps {
   eraseAreas: EraseArea[];
   /** Committed in one call per stroke so a whole erase undoes as one step. */
   onAddEraseAreas: (areas: EraseArea[]) => void;
+  /** Extra clockwise rotation per page in degrees (0/90/180/270). */
+  pageRotations: Record<number, number>;
   shapeKind: ShapeKind;
   shapeFillEnabled: boolean;
   shapeFillColor: string;
@@ -117,6 +120,7 @@ export const PdfViewer: React.FC<PdfViewerProps> = ({
   onEraseItems,
   eraseAreas,
   onAddEraseAreas,
+  pageRotations,
   shapeKind,
   shapeFillEnabled,
   shapeFillColor,
@@ -259,13 +263,21 @@ export const PdfViewer: React.FC<PdfViewerProps> = ({
     return () => window.removeEventListener('keydown', onKey);
   }, []);
 
+  // Extra clockwise rotation of the CURRENT page. The sheet keeps its own
+  // coordinate space; only the on-screen footprint turns — 90/270 swap the
+  // width and height that the fit maths and the layout wrapper reserve.
+  const rotation = normalizeRotation(pageRotations[currentPage] ?? 0);
+  const rotationSwapped = rotation === 90 || rotation === 270;
+
   // Fit page / fit width: keep the scale fitted to the available viewport.
   // Window resize, page turns and crop changes all retrigger the fit; the
   // epsilon guard prevents a set-scale -> re-render -> recompute loop.
   useEffect(() => {
     if (!fitMode) return;
     const apply = () => {
-      const scroll = containerRef.current?.parentElement;
+      // A sizing wrapper sits between the page and the scroll box, so walk
+      // up to the scroll container itself rather than taking the parent.
+      const scroll = containerRef.current?.closest('.overflow-auto');
       if (!scroll || !pageSize.pdfWidth) return;
       const cs = getComputedStyle(scroll);
       const padX = parseFloat(cs.paddingLeft) + parseFloat(cs.paddingRight);
@@ -276,17 +288,21 @@ export const PdfViewer: React.FC<PdfViewerProps> = ({
       const crop = cropSettings[currentPage];
       const fitW = crop ? crop.width : pageSize.pdfWidth;
       const fitH = crop ? crop.height : pageSize.pdfHeight;
+      // A 90°/270° page shows its height along the viewport's width axis.
+      const swapped = rotation === 90 || rotation === 270;
+      const onW = swapped ? fitH : fitW;
+      const onH = swapped ? fitW : fitH;
       const next =
         fitMode === 'width'
-          ? availW / fitW
-          : Math.min(availW / fitW, availH / fitH);
+          ? availW / onW
+          : Math.min(availW / onW, availH / onH);
       const clamped = Math.min(4, Math.max(0.25, next));
       if (Math.abs(clamped - scale) > 0.004) onScaleChange(clamped);
     };
     apply();
     window.addEventListener('resize', apply);
     return () => window.removeEventListener('resize', apply);
-  }, [fitMode, pageSize, cropSettings, currentPage, scale, onScaleChange]);
+  }, [fitMode, pageSize, cropSettings, currentPage, scale, onScaleChange, rotation]);
 
   // Ctrl/Cmd + wheel zooms the page (plain wheel keeps scrolling). Registered
   // natively with passive: false so the browser's own page zoom is suppressed.
@@ -452,14 +468,21 @@ export const PdfViewer: React.FC<PdfViewerProps> = ({
   const offX = pageSize.offX;
   const offY = pageSize.offY;
 
+  // Client point -> page-local pixels, undoing the CSS page rotation so every
+  // tool below keeps working in the sheet's own coordinate space.
+  const toPagePoint = (clientX: number, clientY: number, rect: DOMRect) =>
+    screenToPagePoint(clientX, clientY, rect, pageSize.width, pageSize.height, rotation);
+
   // Text-box corner resize: window listeners keep the drag alive even when
   // the cursor leaves the page box. The box keeps its top-left corner, so
   // pdfY (bottom edge) is recomputed from the fixed top edge.
   useEffect(() => {
     if (!overlayResize) return;
     const onMove = (e: MouseEvent) => {
-      const dx = (e.clientX - overlayResize.cx) * scaleX;
-      const dy = (e.clientY - overlayResize.cy) * scaleY;
+      // Screen deltas live in the rotated view — turn them back into page space.
+      const d = screenToPageDelta(e.clientX - overlayResize.cx, e.clientY - overlayResize.cy, rotation);
+      const dx = d.x * scaleX;
+      const dy = d.y * scaleY;
       const maxW = Math.max(24, pageSize.pdfWidth - overlayResize.pdfX);
       const maxH = Math.max(overlayResize.min, overlayResize.top); // keep pdfY >= 0
       const w = Math.min(maxW, Math.max(24, overlayResize.w + dx));
@@ -473,7 +496,7 @@ export const PdfViewer: React.FC<PdfViewerProps> = ({
       window.removeEventListener('mousemove', onMove);
       window.removeEventListener('mouseup', onUp);
     };
-  }, [overlayResize, scaleX, scaleY, pageSize.pdfWidth, onUpdateTextOverlay]);
+  }, [overlayResize, rotation, scaleX, scaleY, pageSize.pdfWidth, onUpdateTextOverlay]);
 
   // Text-box drag-to-move: same window-listener pattern as the resize handle.
   // pdfX/pdfY are clamped, so a box can be moved anywhere INSIDE the page but
@@ -481,8 +504,12 @@ export const PdfViewer: React.FC<PdfViewerProps> = ({
   useEffect(() => {
     if (!overlayMove) return;
     const onMove = (e: MouseEvent) => {
-      const dx = e.clientX - overlayMove.cx;
-      const dy = e.clientY - overlayMove.cy;
+      // Screen deltas live in the rotated view — turn them back into page space.
+      const { x: dx, y: dy } = screenToPageDelta(
+        e.clientX - overlayMove.cx,
+        e.clientY - overlayMove.cy,
+        rotation,
+      );
       if (!overlayMove.started) {
         // Below the threshold the gesture is still a click, not a drag.
         if (Math.hypot(dx, dy) < 3) return;
@@ -519,6 +546,7 @@ export const PdfViewer: React.FC<PdfViewerProps> = ({
     };
   }, [
     overlayMove,
+    rotation,
     scaleX,
     scaleY,
     sX,
@@ -534,8 +562,7 @@ export const PdfViewer: React.FC<PdfViewerProps> = ({
   const handleMouseDown = (e: React.MouseEvent<HTMLDivElement>) => {
     if (!pageSize.width) return;
     const rect = e.currentTarget.getBoundingClientRect();
-    const x = e.clientX - rect.left;
-    const y = e.clientY - rect.top;
+    const { x, y } = toPagePoint(e.clientX, e.clientY, rect);
 
     // Clicking empty page space deselects the text box (the box's own click
     // handler re-selects it afterwards).
@@ -682,8 +709,7 @@ export const PdfViewer: React.FC<PdfViewerProps> = ({
   const handleMouseMove = (e: React.MouseEvent<HTMLDivElement>) => {
     if (!pageSize.width) return;
     const rect = e.currentTarget.getBoundingClientRect();
-    const x = e.clientX - rect.left;
-    const y = e.clientY - rect.top;
+    const { x, y } = toPagePoint(e.clientX, e.clientY, rect);
 
     if (pasteGhost) {
       setPasteGhost((g) => (g ? { ...g, x, y } : g));
@@ -1003,18 +1029,39 @@ export const PdfViewer: React.FC<PdfViewerProps> = ({
 
   return (
     <div className="flex-1 overflow-auto bg-neutral-200/70 p-4 sm:p-8 lg:p-12 flex justify-center items-start">
+      {/*
+        Sizing wrapper: the sheet below renders unrotated (canvas + every
+        overlay share one coordinate space) and is turned with a single CSS
+        rotation. Transforms don't affect layout, so this box reserves the
+        ROTATED footprint — 90/270 swap width and height.
+      */}
       <div
-        ref={containerRef}
-        onMouseDown={handleMouseDown}
-        onMouseMove={handleMouseMove}
-        onMouseUp={handleMouseUp}
-        className="relative overflow-hidden bg-white shadow-2xl rounded-sm select-none"
+        className="relative"
         style={{
-          width: pageSize.width || 'auto',
-          height: pageSize.height || 'auto',
-          cursor: cursorStyle,
+          width: rotationSwapped ? pageSize.height || 'auto' : pageSize.width || 'auto',
+          height: rotationSwapped ? pageSize.width || 'auto' : pageSize.height || 'auto',
         }}
       >
+        <div
+          ref={containerRef}
+          onMouseDown={handleMouseDown}
+          onMouseMove={handleMouseMove}
+          onMouseUp={handleMouseUp}
+          className="relative overflow-hidden bg-white shadow-2xl rounded-sm select-none"
+          style={{
+            width: pageSize.width || 'auto',
+            height: pageSize.height || 'auto',
+            cursor: cursorStyle,
+            ...(rotation
+              ? {
+                  position: 'absolute' as const,
+                  left: '50%',
+                  top: '50%',
+                  transform: `translate(-50%, -50%) rotate(${rotation}deg)`,
+                }
+              : null),
+          }}
+        >
         <canvas
           ref={canvasRef}
           className="block pointer-events-none"
@@ -1345,7 +1392,10 @@ export const PdfViewer: React.FC<PdfViewerProps> = ({
                   height: item.height,
                 }}
               >
-                <div className="hidden group-hover:block absolute -top-5 left-0 bg-emerald-600 text-white text-[10px] px-1 py-0.5 rounded shadow pointer-events-none whitespace-nowrap z-20">
+                <div
+                  className="hidden group-hover:block absolute -top-5 left-0 bg-emerald-600 text-white text-[10px] px-1 py-0.5 rounded shadow pointer-events-none whitespace-nowrap z-20"
+                  style={rotation ? { transform: `rotate(${-rotation}deg)` } : undefined}
+                >
                   Edit ({item.originalFontName})
                 </div>
               </div>
@@ -1357,6 +1407,7 @@ export const PdfViewer: React.FC<PdfViewerProps> = ({
             item={activeEditingItem}
             pageIndex={currentPage}
             pageWidthPt={pageSize.pdfWidth}
+            rotation={rotation}
             isNew={activeEditingItem.id.startsWith('new-text-')}
             defaults={textDefaultsRef.current}
             onMoveStart={
@@ -1462,6 +1513,7 @@ export const PdfViewer: React.FC<PdfViewerProps> = ({
               className={`absolute left-0 bg-emerald-600 text-white text-[10px] px-1.5 py-0.5 rounded shadow whitespace-nowrap ${
                 activeSel.y < 24 ? 'top-full mt-1' : '-top-6'
               }`}
+              style={rotation ? { transform: `rotate(${-rotation}deg)` } : undefined}
             >
               {Math.round(activeSel.w)} × {Math.round(activeSel.h)} px
             </span>
@@ -1481,20 +1533,31 @@ export const PdfViewer: React.FC<PdfViewerProps> = ({
                 height: ghostH,
               }}
             />
-            <div className="absolute top-2 left-1/2 -tranneutral-x-1/2 z-30 bg-neutral-900 text-white text-[11px] px-3 py-1.5 rounded-full shadow-lg pointer-events-none whitespace-nowrap">
+            <div
+              className="absolute top-2 left-1/2 -tranneutral-x-1/2 z-30 bg-neutral-900 text-white text-[11px] px-3 py-1.5 rounded-full shadow-lg pointer-events-none whitespace-nowrap"
+              style={
+                rotation ? { transform: `translateX(-50%) rotate(${-rotation}deg)` } : undefined
+              }
+            >
               Click on the page to place the copied region · Esc to cancel
             </div>
           </>
         )}
 
         {currentTool === 'image' && pendingImage && (
-          <div className="absolute top-2 left-1/2 -tranneutral-x-1/2 z-30 bg-neutral-900 text-white text-[11px] px-3 py-1.5 rounded-full shadow-lg pointer-events-none whitespace-nowrap">
+          <div
+            className="absolute top-2 left-1/2 -tranneutral-x-1/2 z-30 bg-neutral-900 text-white text-[11px] px-3 py-1.5 rounded-full shadow-lg pointer-events-none whitespace-nowrap"
+            style={rotation ? { transform: `translateX(-50%) rotate(${-rotation}deg)` } : undefined}
+          >
             Click on the page to place your image
           </div>
         )}
 
         {currentTool === 'sign' && activeSignatureDataUrl && (
-          <div className="absolute top-2 left-1/2 -tranneutral-x-1/2 z-30 bg-neutral-900 text-white text-[11px] px-3 py-1.5 rounded-full shadow-lg pointer-events-none whitespace-nowrap">
+          <div
+            className="absolute top-2 left-1/2 -tranneutral-x-1/2 z-30 bg-neutral-900 text-white text-[11px] px-3 py-1.5 rounded-full shadow-lg pointer-events-none whitespace-nowrap"
+            style={rotation ? { transform: `translateX(-50%) rotate(${-rotation}deg)` } : undefined}
+          >
             Click on the page to place your signature
           </div>
         )}
@@ -1503,6 +1566,7 @@ export const PdfViewer: React.FC<PdfViewerProps> = ({
           <CropOverlay
             pageWidth={pageSize.width}
             pageHeight={pageSize.height}
+            rotation={rotation}
             hasCrop={!!cropSettings[currentPage]}
             onApplyRect={(rect) => {
               // View rect (origin top-left, px) -> absolute PDF rect (origin bottom-left).
@@ -1518,6 +1582,7 @@ export const PdfViewer: React.FC<PdfViewerProps> = ({
             onCancel={onCancelCrop}
           />
         )}
+        </div>
       </div>
     </div>
   );

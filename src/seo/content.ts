@@ -53,7 +53,7 @@ export const RAZORPAY_NAME = 'Razorpay';
 export const SITE_TITLE = 'Free Online PDF Editor — Edit, Sign & Annotate PDFs';
 
 export const SITE_DESCRIPTION =
-  'Edit PDFs free in your browser. Add text, images, shapes and signatures, highlight, redact, crop and annotate. No sign-up, no upload to a server, and one free edit every day.';
+  'Edit PDFs free in your browser. Add text, images, shapes and signatures, highlight, redact, crop, rotate and annotate. No sign-up, no upload to a server, and one free edit every day.';
 
 export const HERO_HEADING = 'Free Online PDF Editor';
 
@@ -81,6 +81,10 @@ export const FEATURES: FeatureItem[] = [
   {
     title: 'Crop and redact',
     body: 'Crop a page to a region, or black out sensitive details permanently before you share it.',
+  },
+  {
+    title: 'Rotate pages',
+    body: 'Turn any page 90° at a time — fix sideways scans and wrong orientations with one click.',
   },
   {
     title: 'Shapes and stamps',
@@ -116,7 +120,7 @@ export const FAQ: FaqItem[] = [
   {
     question: 'What can I change in a PDF?',
     answer:
-      'You can add, move, resize and delete text, images, shapes, drawings, highlights, stamps and signatures, and you can crop pages.',
+      'You can add, move, resize and delete text, images, shapes, drawings, highlights, stamps and signatures, and you can crop and rotate pages.',
   },
   {
     question: 'Can I edit a PDF on my phone?',

@@ -16,6 +16,11 @@ interface TextEditInlineProps {
   /** Page width in PDF points — the box auto-fits up to the page edge. */
   pageWidthPt?: number;
   /**
+   * Counter-rotation of the page (degrees CW) so the popup un-turns itself
+   * and its controls stay upright on a rotated sheet. Defaults to 0.
+   */
+  rotation?: number;
+  /**
    * Present only while editing an ALREADY SAVED box: starts a drag that
    * moves the box anywhere on the page. The editor popup sits above the box,
    * so this header grip is the reliable way to move it while editing.
@@ -31,6 +36,7 @@ export const TextEditInline: React.FC<TextEditInlineProps> = ({
   isNew,
   defaults,
   pageWidthPt,
+  rotation = 0,
   onMoveStart,
 }) => {
   const [text, setText] = useState(item.str);
@@ -143,6 +149,10 @@ export const TextEditInline: React.FC<TextEditInlineProps> = ({
       style={{
         left: Math.max(0, item.x - 4),
         top: Math.max(0, item.y - 48),
+        // The page turns as a whole — un-turn the popup so its controls stay
+        // upright and usable (rotating about its own centre keeps it anchored
+        // beside the text box it belongs to).
+        ...(rotation ? { transform: `rotate(${-rotation}deg)` } : null),
       }}
       onMouseDown={(e) => e.stopPropagation()}
     >

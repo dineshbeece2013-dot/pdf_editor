@@ -1,9 +1,12 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { Crop, Check, X, RotateCcw } from 'lucide-react';
+import { screenToPageDelta, screenToPagePoint } from '../utils/pageCoords';
 
 interface CropOverlayProps {
   pageWidth: number;
   pageHeight: number;
+  /** Extra page rotation in degrees (0/90/180/270, clockwise). */
+  rotation: number;
   hasCrop: boolean;
   /** Selection rect in view pixels, origin top-left of the visible page. */
   onApplyRect: (rect: { x: number; y: number; width: number; height: number }) => void;
@@ -34,6 +37,7 @@ const HANDLES: { mode: DragMode; cls: string; size: string }[] = [
 export const CropOverlay: React.FC<CropOverlayProps> = ({
   pageWidth,
   pageHeight,
+  rotation,
   hasCrop,
   onApplyRect,
   onReset,
@@ -59,21 +63,26 @@ export const CropOverlay: React.FC<CropOverlayProps> = ({
   const startDrag = (e: React.MouseEvent, mode: DragMode) => {
     e.preventDefault();
     e.stopPropagation();
+    // This overlay lives INSIDE the rotated page, so the drag anchor must be
+    // inverse-rotated (rebased around the page centre) — motion deltas are
+    // turned back into page space in onMove below. Only 'draw' uses the anchor.
     const rect = e.currentTarget.getBoundingClientRect();
+    const anchor = screenToPagePoint(e.clientX, e.clientY, rect, pageWidth, pageHeight, rotation);
     dragRef.current = {
       mode,
       sx: e.clientX,
       sy: e.clientY,
-      ax: e.clientX - rect.left,
-      ay: e.clientY - rect.top,
+      ax: anchor.x,
+      ay: anchor.y,
       start: { ...box },
     };
 
     const onMove = (ev: MouseEvent) => {
       const d = dragRef.current;
       if (!d) return;
-      const dx = ev.clientX - d.sx;
-      const dy = ev.clientY - d.sy;
+      const delta = screenToPageDelta(ev.clientX - d.sx, ev.clientY - d.sy, rotation);
+      const dx = delta.x;
+      const dy = delta.y;
 
       if (d.mode === 'draw') {
         // Marquee drag from the anchor point, like Paint's selection tool.
@@ -161,7 +170,10 @@ export const CropOverlay: React.FC<CropOverlayProps> = ({
       onMouseDown={(e) => startDrag(e, 'draw')}
     >
       {/* Live hint, like Paint's status-bar guidance */}
-      <div className="absolute top-2 left-1/2 -tranneutral-x-1/2 z-30 bg-neutral-900/80 text-white text-[10px] px-3 py-1 rounded-full pointer-events-none select-none whitespace-nowrap">
+      <div
+        className="absolute top-2 left-1/2 -tranneutral-x-1/2 z-30 bg-neutral-900/80 text-white text-[10px] px-3 py-1 rounded-full pointer-events-none select-none whitespace-nowrap"
+        style={rotation ? { transform: `translateX(-50%) rotate(${-rotation}deg)` } : undefined}
+      >
         Drag to select · drag handles to resize · Enter to crop · Esc to cancel
       </div>
 
@@ -172,7 +184,10 @@ export const CropOverlay: React.FC<CropOverlayProps> = ({
         onMouseDown={(e) => startDrag(e, 'move')}
       >
         {/* Paint-style live W × H readout */}
-        <div className="absolute top-1 left-1 z-10 bg-neutral-900/90 text-white text-[10px] font-medium px-2 py-0.5 rounded shadow flex items-center gap-1.5 select-none whitespace-nowrap pointer-events-none">
+        <div
+          className="absolute top-1 left-1 z-10 bg-neutral-900/90 text-white text-[10px] font-medium px-2 py-0.5 rounded shadow flex items-center gap-1.5 select-none whitespace-nowrap pointer-events-none"
+          style={rotation ? { transform: `rotate(${-rotation}deg)` } : undefined}
+        >
           <Crop className="w-3 h-3 text-emerald-300" />
           <span>
             {Math.round(box.w)} × {Math.round(box.h)} px
@@ -192,6 +207,7 @@ export const CropOverlay: React.FC<CropOverlayProps> = ({
       <div
         className="absolute bottom-4 left-1/2 -tranneutral-x-1/2 z-30 bg-white/95 backdrop-blur-md px-2 py-1.5 rounded-xl shadow-lg border border-neutral-200 flex items-center gap-1.5 cursor-pointer"
         onMouseDown={(e) => e.stopPropagation()}
+        style={rotation ? { transform: `translateX(-50%) rotate(${-rotation}deg)` } : undefined}
       >
         <button
           onClick={apply}
