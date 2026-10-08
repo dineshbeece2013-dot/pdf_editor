@@ -1,4 +1,5 @@
 import React, { useEffect, useRef, useState } from 'react';
+import type { RenderTask } from 'pdfjs-dist';
 import { pdfjsLib, mapPdfFontToStandard, mapPdfFontToCss } from '../services/pdfLoader';
 import type {
   ToolType,
@@ -380,12 +381,30 @@ export const PdfViewer: React.FC<PdfViewerProps> = ({
     };
   }, [pdfBytes]);
 
+  // The in-flight pdf.js render task. Phones open in fit-page mode, so the
+  // first paint (the 120% default) is almost immediately followed by a second
+  // render at the fitted scale. The second render resizes the canvas — which
+  // resets the 2D context transform — and if the first task is still painting
+  // it keeps drawing in raw PDF coordinates, leaving the bitmap upside-down.
+  const renderTaskRef = useRef<RenderTask | null>(null);
+
   useEffect(() => {
     if (!pdfDoc) return;
     let isCancelled = false;
     const renderPage = async () => {
       try {
+        // Stop the previous paint and wait until it has fully settled before
+        // the canvas is resized below: cancel() only takes effect at the next
+        // graphics pause, so resizing straight away could still race it.
+        const prev = renderTaskRef.current;
+        if (prev) {
+          try { prev.cancel(); } catch { /* already finished */ }
+          try { await prev.promise; } catch { /* RenderingCancelledException */ }
+          if (renderTaskRef.current === prev) renderTaskRef.current = null;
+          if (isCancelled) return;
+        }
         const page = await pdfDoc.getPage(currentPage + 1);
+        if (isCancelled) return;
         const viewport = page.getViewport({ scale });
         const canvas = canvasRef.current;
         if (!canvas) return;
@@ -415,7 +434,17 @@ export const PdfViewer: React.FC<PdfViewerProps> = ({
           offY,
         });
 
-        await page.render({ canvasContext: ctx, viewport }).promise;
+        const task = page.render({ canvasContext: ctx, viewport });
+        renderTaskRef.current = task;
+        try {
+          await task.promise;
+        } catch (err) {
+          // A cancel from the next effect run (scale/fit change) is expected.
+          if ((err as { name?: string } | null)?.name !== 'RenderingCancelledException') throw err;
+          return;
+        } finally {
+          if (renderTaskRef.current === task) renderTaskRef.current = null;
+        }
 
         const textContent = await page.getTextContent();
         if (isCancelled) return;
@@ -455,6 +484,9 @@ export const PdfViewer: React.FC<PdfViewerProps> = ({
     renderPage();
     return () => {
       isCancelled = true;
+      // Stop the in-flight paint at the next graphics pause; the next effect
+      // run awaits its settle before resizing the canvas.
+      try { renderTaskRef.current?.cancel(); } catch { /* already finished */ }
     };
   }, [pdfDoc, currentPage, scale, cropSettings]);
 
