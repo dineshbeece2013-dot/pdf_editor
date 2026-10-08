@@ -25,13 +25,13 @@ const clamp = (v: number, min: number, max: number) => Math.min(Math.max(v, min)
 // the selection rectangle so the page's overflow clipping never cuts them.
 const HANDLES: { mode: DragMode; cls: string; size: string }[] = [
   { mode: 'nw', cls: 'left-0 top-0 cursor-nwse-resize', size: 'w-2.5 h-2.5' },
-  { mode: 'n', cls: 'left-1/2 top-0 -tranneutral-x-1/2 cursor-ns-resize', size: 'w-7 h-2' },
+  { mode: 'n', cls: 'left-1/2 top-0 -translate-x-1/2 cursor-ns-resize', size: 'w-7 h-2' },
   { mode: 'ne', cls: 'right-0 top-0 cursor-nesw-resize', size: 'w-2.5 h-2.5' },
-  { mode: 'e', cls: 'right-0 top-1/2 -tranneutral-y-1/2 cursor-ew-resize', size: 'w-2 h-7' },
+  { mode: 'e', cls: 'right-0 top-1/2 -translate-y-1/2 cursor-ew-resize', size: 'w-2 h-7' },
   { mode: 'se', cls: 'right-0 bottom-0 cursor-nwse-resize', size: 'w-2.5 h-2.5' },
-  { mode: 's', cls: 'left-1/2 bottom-0 -tranneutral-x-1/2 cursor-ns-resize', size: 'w-7 h-2' },
+  { mode: 's', cls: 'left-1/2 bottom-0 -translate-x-1/2 cursor-ns-resize', size: 'w-7 h-2' },
   { mode: 'sw', cls: 'left-0 bottom-0 cursor-nesw-resize', size: 'w-2.5 h-2.5' },
-  { mode: 'w', cls: 'left-0 top-1/2 -tranneutral-y-1/2 cursor-ew-resize', size: 'w-2 h-7' },
+  { mode: 'w', cls: 'left-0 top-1/2 -translate-y-1/2 cursor-ew-resize', size: 'w-2 h-7' },
 ];
 
 export const CropOverlay: React.FC<CropOverlayProps> = ({
@@ -171,7 +171,7 @@ export const CropOverlay: React.FC<CropOverlayProps> = ({
     >
       {/* Live hint, like Paint's status-bar guidance */}
       <div
-        className="absolute top-2 left-1/2 -tranneutral-x-1/2 z-30 bg-neutral-900/80 text-white text-[10px] px-3 py-1 rounded-full pointer-events-none select-none whitespace-nowrap"
+        className="absolute top-2 left-1/2 -translate-x-1/2 z-30 bg-neutral-900/80 text-white text-[10px] px-3 py-1 rounded-full pointer-events-none select-none whitespace-nowrap max-w-[calc(100%-1rem)] truncate"
         style={rotation ? { transform: `translateX(-50%) rotate(${-rotation}deg)` } : undefined}
       >
         Drag to select · drag handles to resize · Enter to crop · Esc to cancel
@@ -205,7 +205,7 @@ export const CropOverlay: React.FC<CropOverlayProps> = ({
 
       {/* Floating Paint-style confirm bar: ✓ Crop / ✗ Cancel / ↺ Clear */}
       <div
-        className="absolute bottom-4 left-1/2 -tranneutral-x-1/2 z-30 bg-white/95 backdrop-blur-md px-2 py-1.5 rounded-xl shadow-lg border border-neutral-200 flex items-center gap-1.5 cursor-pointer"
+        className="absolute bottom-4 left-1/2 -translate-x-1/2 z-30 bg-white/95 backdrop-blur-md px-2 py-1.5 rounded-xl shadow-lg border border-neutral-200 flex flex-wrap items-center justify-center gap-1.5 cursor-pointer max-w-[calc(100%-1rem)]"
         onMouseDown={(e) => e.stopPropagation()}
         style={rotation ? { transform: `translateX(-50%) rotate(${-rotation}deg)` } : undefined}
       >

@@ -56,30 +56,37 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ onClose }) => {
     <div className="h-screen w-screen flex flex-col bg-neutral-100">
       <header className="h-14 shrink-0 bg-neutral-950 text-white flex items-center justify-between px-4 sm:px-6">
         <div className="flex items-center gap-2.5">
-          <span className="w-8 h-8 rounded-lg bg-emerald-600 flex items-center justify-center">
+          <span className="w-8 h-8 shrink-0 rounded-lg bg-emerald-600 flex items-center justify-center">
             <LayoutDashboard className="w-4 h-4" />
           </span>
-          <span className="font-bold text-sm tracking-tight">
-            PDF Editor Pro · <span className="text-emerald-400">Admin</span>
+          <span className="font-bold text-sm tracking-tight whitespace-nowrap">
+            <span className="hidden sm:inline">PDF Editor Pro · </span>
+            <span className="text-emerald-400">Admin</span>
           </span>
         </div>
         <button
           onClick={onClose}
-          className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold text-neutral-300 hover:text-white hover:bg-neutral-800"
+          className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold text-neutral-300 hover:text-white hover:bg-neutral-800 whitespace-nowrap"
         >
           <ArrowLeft className="w-3.5 h-3.5" />
-          Back to editor
+          <span className="hidden sm:inline">Back to editor</span>
+          <span className="sm:hidden">Back</span>
         </button>
       </header>
 
-      <div className="flex-1 flex overflow-hidden">
-        <aside className="w-48 sm:w-56 shrink-0 bg-neutral-900 text-neutral-300 p-3 flex flex-col gap-1">
+      {/*
+        Tabs: a fixed left sidebar from `sm` up (unchanged desktop console);
+        below `sm` they become a horizontally swipeable strip above the panel
+        so the table keeps the full screen width instead of ~130px.
+      */}
+      <div className="flex-1 flex flex-col sm:flex-row overflow-hidden">
+        <aside className="shrink-0 bg-neutral-900 text-neutral-300 p-2 sm:p-3 flex flex-row sm:flex-col gap-1.5 sm:gap-1 overflow-x-auto sm:overflow-x-visible no-scrollbar border-b sm:border-b-0 border-neutral-800 sm:w-56">
           {TABS.map((t) => (
             <button
               key={t.id}
               onClick={() => setTab(t.id)}
               className={
-                'w-full flex items-center gap-2.5 px-3 py-2.5 rounded-lg text-sm font-medium transition-colors ' +
+                'shrink-0 sm:w-full flex items-center gap-2.5 px-3 py-2 sm:py-2.5 rounded-lg text-sm font-medium transition-colors whitespace-nowrap ' +
                 (tab === t.id ? 'bg-emerald-600 text-white' : 'hover:bg-neutral-800')
               }
             >

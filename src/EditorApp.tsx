@@ -62,9 +62,12 @@ export function EditorApp() {
   const [totalPages, setTotalPages] = useState(1);
   // Zoom: 1.2 = 120% default view. Fit modes keep the scale fitted to the
   // viewport (the viewer recomputes on resize / page / crop changes); any
-  // manual zoom clears the fit mode.
+  // manual zoom clears the fit mode. Phones open in fit-page mode so the
+  // whole sheet is visible on the first paint (desktop keeps 120%).
   const [scale, setScale] = useState(1.2);
-  const [fitMode, setFitMode] = useState<'page' | 'width' | null>(null);
+  const [fitMode, setFitMode] = useState<'page' | 'width' | null>(() =>
+    typeof window !== 'undefined' && window.innerWidth < 640 ? 'page' : null,
+  );
   const [zoomMenu, setZoomMenu] = useState(false);
   const clampZoom = (s: number) => Math.min(4, Math.max(0.25, s));
   const zoomBy = (factor: number) => {

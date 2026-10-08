@@ -147,7 +147,13 @@ export const TextEditInline: React.FC<TextEditInlineProps> = ({
     <div
       className="absolute z-30 bg-white rounded-lg shadow-2xl border border-emerald-400 p-2 min-w-[260px]"
       style={{
-        left: Math.max(0, item.x - 4),
+        // Keep the popup inside the page box: anchor beside the text box but
+        // never past its right edge. `min()`/`max()` let the browser re-clamp
+        // whenever the sheet's rendered width changes (narrow screens, zoom,
+        // a rotated page); maxWidth backstops content that is wider than the
+        // 260px nominal width.
+        left: `max(0px, min(${Math.max(0, item.x - 4)}px, calc(100% - 282px)))`,
+        maxWidth: `calc(100% - max(0px, min(${Math.max(0, item.x - 4)}px, calc(100% - 282px))) - 8px)`,
         top: Math.max(0, item.y - 48),
         // The page turns as a whole — un-turn the popup so its controls stay
         // upright and usable (rotating about its own centre keeps it anchored
@@ -156,7 +162,7 @@ export const TextEditInline: React.FC<TextEditInlineProps> = ({
       }}
       onMouseDown={(e) => e.stopPropagation()}
     >
-      <div className="flex items-center justify-between pb-1.5 mb-1.5 border-b border-neutral-100 text-[11px] text-neutral-500">
+      <div className="flex flex-wrap items-center justify-between pb-1.5 mb-1.5 border-b border-neutral-100 text-[11px] text-neutral-500">
         <div className="flex items-center gap-1 font-medium text-emerald-700">
           <Sparkles className="w-3 h-3" />
           <span>{isNew ? 'New text' : `Detected: ${item.originalFontName || 'Helvetica'} (${Math.round(item.fontSize)}pt)`}</span>
@@ -181,7 +187,7 @@ export const TextEditInline: React.FC<TextEditInlineProps> = ({
         </div>
       </div>
 
-      <div className="flex items-center gap-1 mb-2 bg-neutral-50 p-1 rounded-md">
+      <div className="flex flex-wrap items-center gap-1 mb-2 bg-neutral-50 p-1 rounded-md">
         <select
           value={fontFamily}
           onChange={(e) => setFontFamily(e.target.value)}

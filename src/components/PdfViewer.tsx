@@ -1028,15 +1028,20 @@ export const PdfViewer: React.FC<PdfViewerProps> = ({
 
 
   return (
-    <div className="flex-1 overflow-auto bg-neutral-200/70 p-4 sm:p-8 lg:p-12 flex justify-center items-start">
+    <div className="flex-1 overflow-auto bg-neutral-200/70 p-4 sm:p-8 lg:p-12 flex items-start">
       {/*
         Sizing wrapper: the sheet below renders unrotated (canvas + every
         overlay share one coordinate space) and is turned with a single CSS
         rotation. Transforms don't affect layout, so this box reserves the
         ROTATED footprint — 90/270 swap width and height.
+        Horizontal centring goes through `mx-auto` rather than the scroll
+        box's `justify-content: center`: auto margins collapse to 0 when the
+        sheet is WIDER than the screen, so the left half stays reachable by
+        scrolling (justify-center would strand it in unreachable negative
+        overflow — the default view on phones).
       */}
       <div
-        className="relative"
+        className="relative mx-auto"
         style={{
           width: rotationSwapped ? pageSize.height || 'auto' : pageSize.width || 'auto',
           height: rotationSwapped ? pageSize.width || 'auto' : pageSize.height || 'auto',
@@ -1534,7 +1539,7 @@ export const PdfViewer: React.FC<PdfViewerProps> = ({
               }}
             />
             <div
-              className="absolute top-2 left-1/2 -tranneutral-x-1/2 z-30 bg-neutral-900 text-white text-[11px] px-3 py-1.5 rounded-full shadow-lg pointer-events-none whitespace-nowrap"
+              className="absolute top-2 left-1/2 -translate-x-1/2 z-30 bg-neutral-900 text-white text-[11px] px-3 py-1.5 rounded-full shadow-lg pointer-events-none whitespace-nowrap max-w-[calc(100%-1rem)] truncate"
               style={
                 rotation ? { transform: `translateX(-50%) rotate(${-rotation}deg)` } : undefined
               }
@@ -1546,7 +1551,7 @@ export const PdfViewer: React.FC<PdfViewerProps> = ({
 
         {currentTool === 'image' && pendingImage && (
           <div
-            className="absolute top-2 left-1/2 -tranneutral-x-1/2 z-30 bg-neutral-900 text-white text-[11px] px-3 py-1.5 rounded-full shadow-lg pointer-events-none whitespace-nowrap"
+            className="absolute top-2 left-1/2 -translate-x-1/2 z-30 bg-neutral-900 text-white text-[11px] px-3 py-1.5 rounded-full shadow-lg pointer-events-none whitespace-nowrap max-w-[calc(100%-1rem)] truncate"
             style={rotation ? { transform: `translateX(-50%) rotate(${-rotation}deg)` } : undefined}
           >
             Click on the page to place your image
@@ -1555,7 +1560,7 @@ export const PdfViewer: React.FC<PdfViewerProps> = ({
 
         {currentTool === 'sign' && activeSignatureDataUrl && (
           <div
-            className="absolute top-2 left-1/2 -tranneutral-x-1/2 z-30 bg-neutral-900 text-white text-[11px] px-3 py-1.5 rounded-full shadow-lg pointer-events-none whitespace-nowrap"
+            className="absolute top-2 left-1/2 -translate-x-1/2 z-30 bg-neutral-900 text-white text-[11px] px-3 py-1.5 rounded-full shadow-lg pointer-events-none whitespace-nowrap max-w-[calc(100%-1rem)] truncate"
             style={rotation ? { transform: `translateX(-50%) rotate(${-rotation}deg)` } : undefined}
           >
             Click on the page to place your signature
