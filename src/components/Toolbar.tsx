@@ -1,5 +1,6 @@
 import React, { useRef, useState } from 'react';
-import type { ToolType, ShapeKind, StampKind, ToolColorKey, ToolColors } from '../types/pdf';
+import type { ToolType, ShapeKind, StampKind, ToolColorKey, ToolColors, TextFormat } from '../types/pdf';
+import { FONT_GROUPS, cssFontFamily } from '../services/fontCatalog';
 import {
   MousePointer,
   Type,
@@ -29,6 +30,12 @@ import {
   Palette,
   RotateCcw,
   RotateCw,
+  Bold,
+  Italic,
+  Underline,
+  AlignLeft,
+  AlignCenter,
+  AlignRight,
 } from 'lucide-react';
 
 export interface ToolbarProps {
@@ -66,6 +73,16 @@ export interface ToolbarProps {
   onRotatePage: (delta: number) => void;
   /** Optional account/subscription control rendered at the top-right. */
   accountSlot?: React.ReactNode;
+  /** Text format state for add-text and edit-text tools. */
+  textFormat?: TextFormat;
+  onTextFormatChange?: (format: Partial<TextFormat>) => void;
+  /** Inline text editing state */
+  editingOverlayId?: string | null;
+  editingText?: string;
+  onStartEditing?: (overlayId: string, initialText: string, seedFormat?: Partial<TextFormat>) => void;
+  onUpdateText?: (text: string) => void;
+  onCommit?: () => void;
+  onCancel?: () => void;
 }
 
 type DropdownMenu = 'erase' | 'annotate' | 'shape' | 'color';
@@ -117,6 +134,14 @@ export const Toolbar: React.FC<ToolbarProps> = ({
   pageRotation,
   onRotatePage,
   accountSlot,
+  textFormat,
+  onTextFormatChange,
+  editingOverlayId,
+  editingText: _editingText,
+  onStartEditing: _onStartEditing,
+  onUpdateText: _onUpdateText,
+  onCommit,
+  onCancel,
 }) => {
   const [openMenu, setOpenMenu] = useState<DropdownMenu | null>(null);
   const [menuPos, setMenuPos] = useState({ left: 0, top: 0 });
@@ -154,6 +179,139 @@ export const Toolbar: React.FC<ToolbarProps> = ({
     'disabled:opacity-30 disabled:hover:text-neutral-600 disabled:hover:bg-transparent';
 
   const Divider = () => <span className="w-px h-5 bg-neutral-200 mx-1 shrink-0" />;
+
+  /** Sub-component to keep the toolbar JSX tidy. `data-textformat` marks the
+   *  region as "safe to click while editing" so the in-document editor does
+   *  not commit when the user reaches for a formatting control. */
+  const TextFormatControls = () => {
+    if (!textFormat) return null;
+    return (
+      <div data-textformat="" className="flex items-center gap-1.5 px-1.5 py-1 shrink-0">
+        {/* Font family */}
+        <select
+          value={textFormat.fontFamily}
+          onChange={(e) => onTextFormatChange?.({ fontFamily: e.target.value })}
+          className="text-[11px] font-medium bg-transparent border border-neutral-200 rounded px-1.5 py-0.5 outline-none focus:border-emerald-400 cursor-pointer max-w-[130px]"
+          title="Font family"
+          style={{ fontFamily: cssFontFamily(textFormat.fontFamily) }}
+        >
+          {FONT_GROUPS.map((group) => (
+            <optgroup key={group.label} label={group.label}>
+              {group.fonts.map((f) => (
+                <option key={f.id} value={f.id} style={{ fontFamily: f.css }}>
+                  {f.label}
+                </option>
+              ))}
+            </optgroup>
+          ))}
+        </select>
+        {/* Font size */}
+        <select
+          value={String(textFormat.fontSize)}
+          onChange={(e) => onTextFormatChange?.({ fontSize: Number(e.target.value) })}
+          className="text-[11px] font-medium bg-transparent border border-neutral-200 rounded px-1.5 py-0.5 outline-none focus:border-emerald-400 cursor-pointer"
+          title="Font size"
+        >
+          {[8, 9, 10, 11, 12, 14, 16, 18, 20, 24, 28, 32, 36, 48, 64, 72].map((s) => (
+            <option key={s} value={s}>
+              {s}
+            </option>
+          ))}
+        </select>
+        <div className="w-px h-4 bg-neutral-200 mx-0.5 shrink-0" />
+        <button
+          onClick={() => onTextFormatChange?.({ bold: !textFormat.bold })}
+          className={`w-5 h-5 rounded flex items-center justify-center transition-colors ${textFormat.bold ? 'bg-emerald-100 text-emerald-700' : 'text-neutral-500 hover:bg-neutral-100'}`}
+          title="Bold"
+        >
+          <Bold className="w-3 h-3" />
+        </button>
+        <button
+          onClick={() => onTextFormatChange?.({ italic: !textFormat.italic })}
+          className={`w-5 h-5 rounded flex items-center justify-center transition-colors ${textFormat.italic ? 'bg-emerald-100 text-emerald-700' : 'text-neutral-500 hover:bg-neutral-100'}`}
+          title="Italic"
+        >
+          <Italic className="w-3 h-3" />
+        </button>
+        <button
+          onClick={() => onTextFormatChange?.({ underline: !textFormat.underline })}
+          className={`w-5 h-5 rounded flex items-center justify-center transition-colors ${textFormat.underline ? 'bg-emerald-100 text-emerald-700' : 'text-neutral-500 hover:bg-neutral-100'}`}
+          title="Underline"
+        >
+          <Underline className="w-3 h-3" />
+        </button>
+        <div className="w-px h-4 bg-neutral-200 mx-0.5 shrink-0" />
+        <button
+          onClick={() => onTextFormatChange?.({ align: 'left' })}
+          className={`p-0.5 rounded transition-colors ${textFormat.align === 'left' ? 'bg-emerald-200 text-emerald-700' : 'text-neutral-500 hover:bg-neutral-100'}`}
+          title="Align left"
+        >
+          <AlignLeft className="w-3 h-3" />
+        </button>
+        <button
+          onClick={() => onTextFormatChange?.({ align: 'center' })}
+          className={`p-0.5 rounded transition-colors ${textFormat.align === 'center' ? 'bg-emerald-200 text-emerald-700' : 'text-neutral-500 hover:bg-neutral-100'}`}
+          title="Align center"
+        >
+          <AlignCenter className="w-3 h-3" />
+        </button>
+        <button
+          onClick={() => onTextFormatChange?.({ align: 'right' })}
+          className={`p-0.5 rounded transition-colors ${textFormat.align === 'right' ? 'bg-emerald-200 text-emerald-700' : 'text-neutral-500 hover:bg-neutral-100'}`}
+          title="Align right"
+        >
+          <AlignRight className="w-3 h-3" />
+        </button>
+        <div className="w-px h-4 bg-neutral-200 mx-0.5 shrink-0" />
+        {/* Text color */}
+        <input
+          type="color"
+          value={textFormat.color}
+          onChange={(e) => onTextFormatChange?.({ color: e.target.value })}
+          className="w-5 h-5 rounded border border-neutral-200 cursor-pointer p-0"
+          title="Text color"
+        />
+        {/* Opacity */}
+        <span className="text-[10px] tabular-nums text-neutral-500 w-8 text-right">
+          {Math.round(textFormat.opacity ?? 100)}%
+        </span>
+        <input
+          type="range"
+          min={10}
+          max={100}
+          value={Math.round(textFormat.opacity ?? 100)}
+          onChange={(e) => onTextFormatChange?.({ opacity: Number(e.target.value) })}
+          className="w-14 accent-emerald-600 cursor-pointer"
+          title="Opacity"
+        />
+        {/* Commit / Cancel controls when editing an inline overlay */}
+        {editingOverlayId != null && (
+          <>
+            <div className="w-px h-4 bg-neutral-200 mx-0.5 shrink-0" />
+            {onCommit && (
+              <button
+                onClick={onCommit}
+                className="flex items-center gap-1 px-2 py-0.5 rounded bg-emerald-600 hover:bg-emerald-700 text-white text-[11px] font-semibold"
+                title="Finish editing (Ctrl+Enter)"
+              >
+                <Check className="w-3 h-3" />
+                <span>Done</span>
+              </button>
+            )}
+            {onCancel && (
+              <button
+                onClick={onCancel}
+                className="p-1 rounded text-neutral-500 hover:bg-neutral-100"
+                title="Discard changes (Esc)"
+              >
+                <X className="w-3 h-3" />
+              </button>
+            )}
+          </>
+        )}
+      </div>
+    );
+  };
 
   /** The palette targets the active tool's color (falls back to pencil). */
   const colorTarget: ToolColorKey =
@@ -354,6 +512,14 @@ export const Toolbar: React.FC<ToolbarProps> = ({
               </span>
             )}
           </button>
+
+          {/* Text formatting controls — active when using text tools or editing an overlay */}
+          {(currentTool === 'add-text' || currentTool === 'edit-text' || editingOverlayId != null) && (
+            <>
+              <Divider />
+              <TextFormatControls />
+            </>
+          )}
         </div>
       </div>
 

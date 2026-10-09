@@ -33,7 +33,11 @@ export interface DetectedTextItem {
   /** Set when re-editing a saved overlay: its formatting seeds the editor. */
   editOverlayId?: string;
   editIsBold?: boolean;
+  editIsItalic?: boolean;
+  editIsUnderline?: boolean;
   editColor?: string;
+  /** Text alignment for detected text. */
+  editAlign?: 'left' | 'center' | 'right';
   /** Saved overlay's text opacity (0–1), seeds the editor's opacity slider. */
   editOpacity?: number;
 }
@@ -51,6 +55,9 @@ export interface EditedTextOverlay {
   color: string;
   isBold?: boolean;
   isItalic?: boolean;
+  isUnderline?: boolean;
+  /** Text alignment: 'left', 'center', or 'right'. Default is 'left'. */
+  align?: 'left' | 'center' | 'right';
   /**
    * Text opacity 0–1. Default (undefined or 1) is 100% — fully opaque.
    * The inline editor exposes a slider so the user can reduce it if wanted.
@@ -64,6 +71,18 @@ export interface EditedTextOverlay {
     pdfHeight: number;
     color?: string;
   };
+}
+
+/** Text formatting state managed by the toolbar. */
+export interface TextFormat {
+  fontFamily: string;
+  fontSize: number;
+  bold: boolean;
+  italic: boolean;
+  underline: boolean;
+  color: string;
+  align: 'left' | 'center' | 'right';
+  opacity: number; // 10-100 (percent)
 }
 
 export interface FreehandDrawing {

@@ -14,6 +14,7 @@ import type {
   StampKind,
   ToolColorKey,
   ToolColors,
+  TextFormat,
 } from './types/pdf';
 import { Toolbar } from './components/Toolbar';
 import { PdfViewer } from './components/PdfViewer';
@@ -124,6 +125,27 @@ export function EditorApp() {
   });
   const handleSetToolColor = (key: ToolColorKey, color: string) => {
     setToolColors((prev) => ({ ...prev, [key]: color }));
+    // Sync text color to text format if it's for text tool
+    if (key === 'text') {
+      setTextFormat((prev) => ({ ...prev, color }));
+    }
+  };
+
+  // Text formatting state for the toolbar — applies to new text and
+  // seeds the inline editor when editing existing text.
+  const [textFormat, setTextFormat] = useState<TextFormat>({
+    fontFamily: 'Helvetica',
+    fontSize: 16,
+    bold: false,
+    italic: false,
+    underline: false,
+    color: '#000000',
+    align: 'left',
+    opacity: 100,
+  });
+
+  const handleTextFormatChange = (patch: Partial<TextFormat>) => {
+    setTextFormat((prev) => ({ ...prev, ...patch }));
   };
 
   // ----- Access control (subscription) -----------------------------------
@@ -139,6 +161,44 @@ export function EditorApp() {
     setUpgradeReason(subscriptionStatus.editLimitReason);
     setShowUpgrade(true);
     return false;
+  };
+
+  // ----- In-document text editing state -----------------------------------
+  // Tracks which overlay is being edited (overlay id) and its live text.
+  const [editingOverlayId, setEditingOverlayId] = useState<string | null>(null);
+  const [editingText, setEditingText] = useState<string>('');
+
+  // One-shot Done/Cancel commands for the editor living inside PdfViewer.
+  const editCommandCount = useRef(0);
+  const [editingCommand, setEditingCommand] = useState<{ op: 'commit' | 'cancel'; n: number } | null>(null);
+  const sendEditCommand = (op: 'commit' | 'cancel') => {
+    editCommandCount.current += 1;
+    setEditingCommand({ op, n: editCommandCount.current });
+  };
+
+  const startEditing = (overlayId: string, initialText: string, seedFormat?: Partial<TextFormat>) => {
+    if (!grantEditAccess()) return;
+    setEditingOverlayId(overlayId);
+    setEditingText(initialText);
+    if (seedFormat) setTextFormat((prev) => ({ ...prev, ...seedFormat }));
+  };
+
+  const handleUpdateText = (newText: string) => {
+    setEditingText(newText);
+  };
+
+  const handleCommit = () => {
+    // Ask the viewer to commit the open editor first (it owns the overlay
+    // payload), then clear the toolbar's editing flag.
+    sendEditCommand('commit');
+    setEditingOverlayId(null);
+    setEditingText('');
+  };
+
+  const handleCancel = () => {
+    sendEditCommand('cancel');
+    setEditingOverlayId(null);
+    setEditingText('');
   };
 
   const openUpgrade = (reason?: string) => {
@@ -539,6 +599,13 @@ export function EditorApp() {
         onSetToolColor={handleSetToolColor}
         pageRotation={pageRotations[currentPage] ?? 0}
         onRotatePage={handleRotatePage}
+        textFormat={textFormat}
+        onTextFormatChange={handleTextFormatChange}
+        // Formatting toolbar switches on while text is being edited in the
+        // document; Done / Cancel drive that editor through editingCommand.
+        editingOverlayId={editingOverlayId}
+        onCommit={handleCommit}
+        onCancel={handleCancel}
         accountSlot={
           <AccountMenu
             onOpenUpgrade={() => openUpgrade()}
@@ -595,6 +662,16 @@ export function EditorApp() {
           pendingImage={pendingImage}
           onClearPendingImage={() => setPendingImage(null)}
           toolColors={toolColors}
+          textFormat={textFormat}
+          onEditTextFormatSeed={(seed) => setTextFormat((prev) => ({ ...prev, ...seed }))}
+          editingOverlayId={editingOverlayId}
+          editingText={editingText}
+          onStartEditing={startEditing}
+          onUpdateText={handleUpdateText}
+          onCommit={handleCommit}
+          onCancel={handleCancel}
+          onTextFormatChange={handleTextFormatChange}
+          editingCommand={editingCommand}
         />
       </div>
 

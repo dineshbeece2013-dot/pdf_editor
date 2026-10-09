@@ -1,133 +1,155 @@
-import React, { useEffect, useRef, useState } from 'react';
-import type { DetectedTextItem, EditedTextOverlay } from '../types/pdf';
-import { cssFontFamily, detectFontId, FONT_GROUPS, isValidFontId } from '../services/fontCatalog';
+import React, { useEffect, useRef } from 'react';
+import type { DetectedTextItem, EditedTextOverlay, TextFormat } from '../types/pdf';
+import { cssFontFamily, detectFontId, isValidFontId } from '../services/fontCatalog';
 import { wrapLines } from '../utils/wrapText';
-import { Check, X, Sparkles, Move } from 'lucide-react';
+import { Move } from 'lucide-react';
 
-interface TextEditInlineProps {
+export interface TextEditInlineProps {
   item: DetectedTextItem;
   pageIndex: number;
   onSave: (overlay: EditedTextOverlay) => void;
   onCancel: () => void;
-  /** True when creating brand-new text (no cover patch, starts empty). */
   isNew?: boolean;
-  /** Last-used formatting, applied as defaults when creating new text. */
   defaults?: { fontFamily?: string; fontSize?: number };
-  /** Page width in PDF points — the box auto-fits up to the page edge. */
+  textFormat?: TextFormat;
   pageWidthPt?: number;
   /**
-   * Counter-rotation of the page (degrees CW) so the popup un-turns itself
-   * and its controls stay upright on a rotated sheet. Defaults to 0.
+   * Fill painted behind the editable text so the original glyphs (or the
+   * overlay's own rendering) never show through while typing. Defaults to
+   * white; re-edits pass the overlay's cover colour so a tinted patch matches.
    */
-  rotation?: number;
-  /**
-   * Present only while editing an ALREADY SAVED box: starts a drag that
-   * moves the box anywhere on the page. The editor popup sits above the box,
-   * so this header grip is the reliable way to move it while editing.
-   */
+  maskColor?: string;
+  onUpdateText?: (text: string) => void;
   onMoveStart?: (e: React.MouseEvent) => void;
+  /** The top toolbar's Done button finishes this edit from outside. */
+  saveRef?: React.MutableRefObject<(() => void) | null>;
+  /** The top toolbar's Cancel button discards this edit from outside. */
+  cancelRef?: React.MutableRefObject<(() => void) | null>;
 }
 
+/**
+ * In-document text editor.
+ *
+ * Deliberately NO floating card, popup or side panel: the editor sits exactly
+ * on the text's own rectangle inside the page (it scrolls and rotates with the
+ * document like real content) while formatting lives in the top toolbar.
+ * Typing happens in a contenteditable div painted straight onto the sheet, so
+ * what you see while typing is what the PDF will contain.
+ *
+ * Commit triggers: blur (any click on the page), Ctrl/Cmd+Enter, or the
+ * toolbar's Done button. Escape discards the change.
+ */
 export const TextEditInline: React.FC<TextEditInlineProps> = ({
   item,
   pageIndex,
   onSave,
   onCancel,
-  isNew,
+  isNew = false,
   defaults,
+  textFormat,
   pageWidthPt,
-  rotation = 0,
+  maskColor,
+  onUpdateText,
   onMoveStart,
+  saveRef,
+  cancelRef,
 }) => {
-  const [text, setText] = useState(item.str);
-  const textareaRef = useRef<HTMLTextAreaElement | null>(null);
+  const textRef = useRef<HTMLDivElement | null>(null);
+  /** Latched the moment the session finishes so blur + page click + Done can
+   *  never commit (or cancel) twice. */
+  const settledRef = useRef(false);
 
-  // The textarea grows with its content so large text stays fully visible.
-  useEffect(() => {
-    const ta = textareaRef.current;
-    if (!ta) return;
-    ta.style.height = 'auto';
-    ta.style.height = `${Math.max(64, ta.scrollHeight)}px`;
-  }, [text]);
+  const fontSize = textFormat?.fontSize ?? (
+    isNew && defaults?.fontSize ? defaults.fontSize : Math.round(item.fontSize || 16)
+  );
 
-  const [fontSize, setFontSize] = useState(() =>
-    isNew && defaults?.fontSize ? defaults.fontSize : Math.round(item.fontSize)
+  const fontFamily = textFormat?.fontFamily ?? (
+    isNew && defaults?.fontFamily && isValidFontId(defaults.fontFamily)
+      ? defaults.fontFamily
+      : detectFontId(item.originalFontName || item.fontFamily)
   );
-  const [fontFamily, setFontFamily] = useState(() => {
-    if (isNew && defaults?.fontFamily && isValidFontId(defaults.fontFamily)) {
-      return defaults.fontFamily;
-    }
-    // Preselect the closest catalog match for the document's detected font
-    // (e.g. raw "Calibri" or "ArialMT" select Calibri / Arial).
-    return detectFontId(item.originalFontName || item.fontFamily);
-  });
-  const [textColor, setTextColor] = useState(item.editColor ?? item.color ?? '#000000');
-  const [isBold, setIsBold] = useState(item.editIsBold ?? false);
-  // Text opacity as a whole percent: 100 by default (fully opaque); the user
-  // can lower it when they want the box to show the page through it.
-  const [opacity, setOpacity] = useState(() =>
-    Math.round(Math.min(100, Math.max(10, (item.editOpacity ?? 1) * 100))),
-  );
+
+  const textColor = textFormat?.color ?? item.editColor ?? item.color ?? '#000000';
+  const isBold = textFormat?.bold ?? item.editIsBold ?? false;
+  const isItalic = textFormat?.italic ?? item.editIsItalic ?? false;
+  const isUnderline = textFormat?.underline ?? item.editIsUnderline ?? false;
+  const align = textFormat?.align ?? item.editAlign ?? 'left';
+  const opacity = textFormat?.opacity != null
+    ? textFormat.opacity
+    : Math.round(Math.min(100, Math.max(10, (item.editOpacity ?? 1) * 100)));
+
+  // Screen pixels per PDF point for THIS box (same formula as the save path),
+  // so the on-screen caret size matches the exported glyph size 1:1.
+  const pxPerPt = item.width > 0 && item.pdfWidth > 0 ? item.width / item.pdfWidth : 1;
+  const sizePt = Number.isFinite(fontSize) && fontSize > 0 ? fontSize : 12;
+  const fontSizePx = Math.max(4, sizePt * pxPerPt);
+
+  /** Contenteditable text (kept uncontrolled so React never moves the caret). */
+  const readText = () => (textRef.current?.innerText ?? '').replace(/\u00a0/g, ' ');
 
   const handleSave = () => {
+    if (settledRef.current) return;
+    const text = readText();
     if (isNew && !text.trim()) {
+      settledRef.current = true;
       onCancel();
       return;
     }
 
-    // Sanitize the size (typed input can be empty or out of range).
-    const size = Number.isFinite(fontSize) && fontSize > 0 ? Math.min(400, fontSize) : 12;
-
-    // Auto-fit: wrap the text with real font metrics and size the box to its
-    // content, so large / multi-line text is fully visible. The box keeps its
-    // top edge (pdfY + pdfHeight is the anchor) and can be resized afterwards
-    // by dragging the corner handle in the viewer.
-    const pxPerPt = item.width > 0 && item.pdfWidth > 0 ? item.width / item.pdfWidth : 1;
-    const fontSizePx = Math.max(4, size * pxPerPt);
+    const size = Math.min(400, sizePt);
+    const fontSizePxSave = Math.max(4, size * pxPerPt);
+    /** Screen px → PDF points. */
+    const scale = pxPerPt > 0 ? 1 / pxPerPt : 1;
     const availPt = Math.max(40, (pageWidthPt ?? item.pdfX + item.pdfWidth) - item.pdfX - 6);
     const availPx = availPt * pxPerPt;
     let maxLinePx = 0;
     let lineCount = 1;
     const ctx = document.createElement('canvas').getContext('2d');
     if (ctx) {
-      ctx.font = `${isBold ? '700 ' : ''}${fontSizePx}px ${cssFontFamily(fontFamily)}`;
+      ctx.font = `${isBold ? '700 ' : ''}${isItalic ? 'italic ' : ''}${fontSizePxSave}px ${cssFontFamily(fontFamily)}`;
       const lines = wrapLines((t) => ctx.measureText(t).width, text, availPx);
       lineCount = lines.length;
       for (const ln of lines) maxLinePx = Math.max(maxLinePx, ctx.measureText(ln).width);
     } else {
-      // No canvas: rough fallback so the box still grows with the text.
       const paras = text.split('\n');
       lineCount = Math.max(1, paras.length);
       let longest = 0;
-      for (const p of paras) longest = Math.max(longest, p.length);
-      maxLinePx = longest * fontSizePx * 0.6;
+      for (const p of paras) longest = Math.max(longest, p.length * fontSizePxSave * 0.55);
+      maxLinePx = longest;
     }
 
     // 0.6em of slack: canvas metrics can run a hair narrower than the
-    // browser's final line layout (kerning / trailing spaces), and even a
-    // couple of clipped pixels are visible — the margin keeps text inside.
-    const slackPx = fontSizePx * 0.6;
-    const lineHeightPt = size * 1.2;
-    const boxWidth = Math.min(availPt, Math.max(24, (maxLinePx + slackPx) / pxPerPt));
-    const boxHeight = Math.max(lineHeightPt, lineCount * lineHeightPt);
-    const topPt = item.pdfY + item.pdfHeight;
+    // browser's final line layout (kerning / trailing spaces), and a couple of
+    // clipped pixels are visible — the margin keeps text inside the box.
+    const slackPx = fontSizePxSave * 0.6;
+    const finalW = Math.min(availPx, Math.max(24, maxLinePx + slackPx));
+    const lineH = fontSizePxSave * 1.2;
+    const boxH = Math.max(lineH, lineCount * lineH) + 2;
 
-    const overlay: EditedTextOverlay = {
-      id: 'overlay-' + Date.now() + '-' + Math.random().toString(36).substring(2, 6),
+    // Re-editing an existing overlay keeps the cover patch it already has;
+    // only a first-time edit of detected original text creates one, and new
+    // text never masks anything.
+    const isReedit = item.id.startsWith('reedit-');
+
+    settledRef.current = true;
+    onSave({
+      id: 'overlay-' + Date.now() + '-' + Math.random().toString(36).slice(2, 6),
       pageIndex,
-      pdfX: item.pdfX,
-      pdfY: topPt - boxHeight,
-      pdfWidth: boxWidth,
-      pdfHeight: boxHeight,
-      text: text,
+      text,
       fontSize: size,
-      fontFamily: fontFamily,
+      fontFamily,
       color: textColor,
-      isBold: isBold,
+      isBold,
+      isItalic,
+      isUnderline,
+      align,
       opacity: opacity / 100,
-      coverOriginal: !isNew,
-      // New text gets no white cover patch — only edits mask the original.
-      ...(isNew
+      pdfX: item.pdfX,
+      pdfY: item.pdfY + item.pdfHeight - boxH * scale,
+      pdfWidth: finalW * scale,
+      pdfHeight: boxH * scale,
+      coverOriginal: !isNew && !isReedit,
+      ...(isNew || isReedit
         ? {}
         : {
             coverRect: {
@@ -135,166 +157,120 @@ export const TextEditInline: React.FC<TextEditInlineProps> = ({
               pdfY: item.pdfY - 2,
               pdfWidth: Math.max(item.pdfWidth + 4, 20),
               pdfHeight: Math.max(item.pdfHeight + 4, 12),
-              color: '#ffffff',
+              color: maskColor || '#ffffff',
             },
           }),
-    };
+    });
+  };
 
-    onSave(overlay);
+  const handleCancel = () => {
+    if (settledRef.current) return;
+    settledRef.current = true;
+    onCancel();
+  };
+
+  // Seed the editable region once (uncontrolled afterwards) and put the caret
+  // at the end so typing continues the text naturally.
+  useEffect(() => {
+    const el = textRef.current;
+    if (!el) return;
+    const initial = item.str || '';
+    el.textContent = initial;
+    el.focus();
+    try {
+      const range = document.createRange();
+      range.selectNodeContents(el);
+      range.collapse(!initial);
+      const sel = window.getSelection();
+      sel?.removeAllRanges();
+      sel?.addRange(range);
+    } catch {
+      // Selection helpers are best-effort; typing works without them.
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  // Expose commit/cancel to the top toolbar for the editor's lifetime, and
+  // clear them on unmount so a stale editor can never be driven.
+  useEffect(() => {
+    if (saveRef) saveRef.current = handleSave;
+    if (cancelRef) cancelRef.current = handleCancel;
+    return () => {
+      if (saveRef) saveRef.current = null;
+      if (cancelRef) cancelRef.current = null;
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  });
+
+  const handleBlur = (e: React.FocusEvent<HTMLDivElement>) => {
+    // Focus moving into the toolbar's formatting controls keeps the editor
+    // open (changes restyle it live); a click anywhere else commits.
+    const next = e.relatedTarget as HTMLElement | null;
+    if (next && typeof next.closest === 'function' && next.closest('[data-textformat]')) return;
+    handleSave();
   };
 
   return (
     <div
-      className="absolute z-30 bg-white rounded-lg shadow-2xl border border-emerald-400 p-2 min-w-[260px]"
+      className="absolute z-30 group/edit cursor-text"
       style={{
-        // Keep the popup inside the page box: anchor beside the text box but
-        // never past its right edge. `min()`/`max()` let the browser re-clamp
-        // whenever the sheet's rendered width changes (narrow screens, zoom,
-        // a rotated page); maxWidth backstops content that is wider than the
-        // 260px nominal width.
-        left: `max(0px, min(${Math.max(0, item.x - 4)}px, calc(100% - 282px)))`,
-        maxWidth: `calc(100% - max(0px, min(${Math.max(0, item.x - 4)}px, calc(100% - 282px))) - 8px)`,
-        top: Math.max(0, item.y - 48),
-        // The page turns as a whole — un-turn the popup so its controls stay
-        // upright and usable (rotating about its own centre keeps it anchored
-        // beside the text box it belongs to).
-        ...(rotation ? { transform: `rotate(${-rotation}deg)` } : null),
+        left: Math.max(0, item.x - 2),
+        top: Math.max(0, item.y - 2),
+        width: Math.max(48, item.width + 4),
+        minHeight: item.height + 4,
+        padding: 2,
+        background: maskColor || '#ffffff',
+        boxShadow: '0 0 0 1px rgba(5, 150, 105, 0.6)',
       }}
+      // Clicks inside the text must not reach the page/overlay handlers
+      // underneath (they would deselect or commit the edit mid-typing).
       onMouseDown={(e) => e.stopPropagation()}
+      onMouseUp={(e) => e.stopPropagation()}
+      onClick={(e) => e.stopPropagation()}
     >
-      <div className="flex flex-wrap items-center justify-between pb-1.5 mb-1.5 border-b border-neutral-100 text-[11px] text-neutral-500">
-        <div className="flex items-center gap-1 font-medium text-emerald-700">
-          <Sparkles className="w-3 h-3" />
-          <span>{isNew ? 'New text' : `Detected: ${item.originalFontName || 'Helvetica'} (${Math.round(item.fontSize)}pt)`}</span>
-        </div>
-        <div className="flex items-center gap-1">
-          {onMoveStart && (
-            <button
-              type="button"
-              title="Drag to move the text box anywhere on the page"
-              onMouseDown={(e) => {
-                e.preventDefault();
-                onMoveStart(e);
-              }}
-              className="cursor-move text-neutral-400 hover:text-emerald-600 px-1"
-            >
-              <Move className="w-3.5 h-3.5" />
-            </button>
-          )}
-          <button onClick={onCancel} className="text-neutral-400 hover:text-neutral-600">
-            <X className="w-3.5 h-3.5" />
-          </button>
-        </div>
-      </div>
-
-      <div className="flex flex-wrap items-center gap-1 mb-2 bg-neutral-50 p-1 rounded-md">
-        <select
-          value={fontFamily}
-          onChange={(e) => setFontFamily(e.target.value)}
-          title="Font family"
-          className="w-[140px] text-xs bg-white border border-neutral-200 rounded px-1.5 py-0.5 text-neutral-700 font-medium"
-          style={{ fontFamily: cssFontFamily(fontFamily) }}
-        >
-          {FONT_GROUPS.map((group) => (
-            <optgroup key={group.label} label={group.label}>
-              {group.fonts.map((font) => (
-                <option key={font.id} value={font.id} style={{ fontFamily: font.css }}>
-                  {font.label}
-                </option>
-              ))}
-            </optgroup>
-          ))}
-        </select>
-
-        <input
-          type="number"
-          value={fontSize}
-          onChange={(e) => setFontSize(Number(e.target.value))}
-          className="w-12 text-xs bg-white border border-neutral-200 rounded px-1.5 py-0.5 text-center font-medium"
-          title="Font Size (pt)"
-          min={6}
-          max={96}
-        />
-
+      {onMoveStart && (
         <button
           type="button"
-          onClick={() => setIsBold(!isBold)}
-          className={`px-2 py-0.5 text-xs font-bold rounded ${
-            isBold ? 'bg-emerald-600 text-white' : 'bg-neutral-100 text-neutral-600'
-          }`}
+          onMouseDown={onMoveStart}
+          title="Drag to move this text"
+          className="absolute -top-3 -right-3 z-30 p-1 bg-white border border-emerald-400 text-emerald-600 rounded shadow-sm opacity-0 group-hover/edit:opacity-100 cursor-move hover:bg-emerald-50"
         >
-          B
+          <Move className="w-3 h-3" />
         </button>
+      )}
 
-        <input
-          type="color"
-          value={textColor}
-          onChange={(e) => setTextColor(e.target.value)}
-          className="w-6 h-6 border-0 p-0 rounded cursor-pointer bg-transparent"
-          title="Text Color"
-        />
-      </div>
-
-      {/* Opacity: 100% by default (solid), reducible when the user wants the
-          page to show through the text box. */}
-      <div className="flex items-center gap-2 mb-2 px-0.5">
-        <span className="text-[11px] font-medium text-neutral-500 select-none">Opacity</span>
-        <input
-          type="range"
-          min={10}
-          max={100}
-          step={5}
-          value={opacity}
-          onChange={(e) => setOpacity(Number(e.target.value))}
-          className="flex-1 accent-emerald-600"
-          title={`Text opacity ${opacity}%`}
-        />
-        <span className="w-9 text-right tabular-nums text-[11px] text-neutral-500">{opacity}%</span>
-      </div>
-
-      <textarea
-        ref={textareaRef}
-        value={text}
-        autoFocus
-        rows={3}
-        placeholder={isNew ? 'Type your text… (multi-line is fine)' : ''}
-        onChange={(e) => setText(e.target.value)}
+      <div
+        ref={textRef}
+        contentEditable
+        suppressContentEditableWarning
+        spellCheck={false}
+        onInput={() => onUpdateText?.(readText())}
+        onBlur={handleBlur}
         onKeyDown={(e) => {
           if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) {
             e.preventDefault();
             handleSave();
-          }
-          if (e.key === 'Escape') {
+          } else if (e.key === 'Escape') {
             e.preventDefault();
-            onCancel();
+            handleCancel();
           }
         }}
-        className="w-full min-h-16 px-2 py-1 text-sm border border-neutral-300 rounded focus:border-emerald-500 focus:outline-none text-neutral-800 resize-y"
+        className="outline-none before:text-neutral-400 before:text-[13px] empty:before:content-[Type_your_text...]"
         style={{
           fontFamily: cssFontFamily(fontFamily),
+          fontSize: `${fontSizePx}px`,
           fontWeight: isBold ? 700 : 400,
+          fontStyle: isItalic ? 'italic' : 'normal',
+          textDecoration: isUnderline ? 'underline' : 'none',
+          textAlign: align,
           color: textColor,
+          opacity: opacity / 100,
+          lineHeight: 1.2,
+          whiteSpace: 'pre-wrap',
+          wordBreak: 'break-word',
+          minHeight: `${Math.max(16, item.height)}px`,
         }}
       />
-
-      <div className="flex items-center gap-1.5 mt-2">
-        <span className="text-[10px] text-neutral-400 select-none mr-auto">
-          Ctrl+Enter saves · Esc cancels
-        </span>
-        <button
-          onClick={onCancel}
-          className="px-2 py-1 text-xs text-neutral-500 hover:text-neutral-700"
-        >
-          Cancel
-        </button>
-        <button
-          onClick={handleSave}
-          className="flex items-center gap-1 px-3 py-1 bg-emerald-600 hover:bg-emerald-700 text-white rounded text-xs font-semibold shadow-sm"
-        >
-          <Check className="w-3 h-3" />
-          {isNew ? 'Add Text' : 'Update Text'}
-        </button>
-      </div>
     </div>
   );
 };

@@ -16,6 +16,7 @@ import type {
   StampKind,
   StampOverlay,
   ToolColors,
+  TextFormat,
 } from '../types/pdf';
 import { CropOverlay } from './CropOverlay';
 import { TextEditInline } from './TextEditInline';
@@ -74,6 +75,22 @@ export interface PdfViewerProps {
   pendingImage: { dataUrl: string; w: number; h: number } | null;
   onClearPendingImage: () => void;
   toolColors: ToolColors;
+  textFormat?: TextFormat;
+  onEditTextFormatSeed?: (seed: Partial<TextFormat>) => void;
+  // Inline text editing state from the app
+  editingOverlayId?: string | null;
+  editingText?: string;
+  onStartEditing?: (overlayId: string, initialText: string, seedFormat?: Partial<TextFormat>) => void;
+  onUpdateText?: (text: string) => void;
+  onCommit?: () => void;
+  onCancel?: () => void;
+  onTextFormatChange?: (format: Partial<TextFormat>) => void;
+  /**
+   * One-shot command from the top toolbar so its Done / Cancel buttons can
+   * finish the in-document editor that lives inside the viewer. `n` increases
+   * per command so repeating the same action still fires the effect.
+   */
+  editingCommand?: { op: 'commit' | 'cancel'; n: number } | null;
 }
 
 /**
@@ -130,9 +147,20 @@ export const PdfViewer: React.FC<PdfViewerProps> = ({
   pendingImage,
   onClearPendingImage,
   toolColors,
+  textFormat,
+  onEditTextFormatSeed,
+  onStartEditing,
+  onUpdateText,
+  onCommit,
+  onCancel,
+  editingCommand,
 }) => {
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const containerRef = useRef<HTMLDivElement | null>(null);
+  /** Latest commit/cancel of the open in-document text editor (set by
+   *  TextEditInline, cleared again when it unmounts). */
+  const editorSaveRef = useRef<(() => void) | null>(null);
+  const editorCancelRef = useRef<(() => void) | null>(null);
 
   const [pdfDoc, setPdfDoc] = useState<any>(null);
   const [detectedTexts, setDetectedTexts] = useState<DetectedTextItem[]>([]);
@@ -593,6 +621,11 @@ export const PdfViewer: React.FC<PdfViewerProps> = ({
 
   const handleMouseDown = (e: React.MouseEvent<HTMLDivElement>) => {
     if (!pageSize.width) return;
+
+    // A click anywhere on the page finishes an open in-document text edit.
+    // (Blur alone is not enough: if focus sits in the toolbar, no blur fires.)
+    if (activeEditingItem) editorSaveRef.current?.();
+
     const rect = e.currentTarget.getBoundingClientRect();
     const { x, y } = toPagePoint(e.clientX, e.clientY, rect);
 
@@ -621,22 +654,24 @@ export const PdfViewer: React.FC<PdfViewerProps> = ({
 
     if (currentTool === 'add-text') {
       // Reuse the inline text editor with a synthetic, empty target box.
+      const newId = 'new-text-' + Date.now();
       setActiveEditingItem({
-        id: 'new-text-' + Date.now(),
+        id: newId,
         str: '',
         x,
         y,
         width: 170,
         height: 26,
-        fontFamily: 'Helvetica',
-        originalFontName: 'Helvetica',
-        fontSize: 16,
-        color: toolColors.text,
+        fontFamily: textFormat?.fontFamily ?? 'Helvetica',
+        originalFontName: textFormat?.fontFamily ?? 'Helvetica',
+        fontSize: textFormat?.fontSize ?? 16,
+        color: textFormat?.color ?? toolColors.text,
         pdfX: (offX + x) * scaleX,
         pdfY: pageSize.pdfHeight - (offY + y + 26) * scaleY,
         pdfWidth: 170 * scaleX,
         pdfHeight: 26 * scaleY,
       });
+      onStartEditing?.(newId, '', textFormat);
       return;
     }
 
@@ -1057,6 +1092,13 @@ export const PdfViewer: React.FC<PdfViewerProps> = ({
     ? textOverlays.find((o) => o.id === editingOverlayId) ?? null
     : null;
 
+  // Done / Cancel in the top toolbar drive the in-document editor directly.
+  useEffect(() => {
+    if (!editingCommand) return;
+    if (editingCommand.op === 'commit') editorSaveRef.current?.();
+    else editorCancelRef.current?.();
+  }, [editingCommand]);
+
 
 
   return (
@@ -1360,12 +1402,32 @@ export const PdfViewer: React.FC<PdfViewerProps> = ({
                     pdfWidth: overlay.pdfWidth,
                     pdfHeight: overlay.pdfHeight,
                     color: overlay.color,
-                    // Formatting of the saved overlay seeds the re-edit editor
-                    // (bold/color/opacity) so re-opening shows exactly what is
-                    // drawn.
                     editIsBold: overlay.isBold,
+                    editIsItalic: overlay.isItalic,
+                    editIsUnderline: overlay.isUnderline,
                     editColor: overlay.color,
                     editOpacity: overlay.opacity,
+                    editAlign: overlay.align,
+                  });
+                  onStartEditing?.(overlay.id, overlay.text, {
+                    fontFamily: overlay.fontFamily,
+                    fontSize: overlay.fontSize,
+                    color: overlay.color,
+                    bold: overlay.isBold ?? false,
+                    italic: overlay.isItalic ?? false,
+                    underline: overlay.isUnderline ?? false,
+                    align: overlay.align ?? 'left',
+                    opacity: Math.round((overlay.opacity ?? 1) * 100),
+                  });
+                  onEditTextFormatSeed?.({
+                    fontFamily: overlay.fontFamily,
+                    fontSize: overlay.fontSize,
+                    color: overlay.color,
+                    bold: overlay.isBold ?? false,
+                    italic: overlay.isItalic ?? false,
+                    underline: overlay.isUnderline ?? false,
+                    align: overlay.align ?? 'left',
+                    opacity: Math.round((overlay.opacity ?? 1) * 100),
                   });
                 }}
               >
@@ -1420,6 +1482,22 @@ export const PdfViewer: React.FC<PdfViewerProps> = ({
                 onClick={(e) => {
                   e.stopPropagation();
                   setActiveEditingItem(item);
+                  onStartEditing?.(item.id, item.str, {
+                    fontFamily: item.fontFamily,
+                    fontSize: Math.round(item.fontSize || 16),
+                    color: item.color || toolColors.text,
+                    bold: item.editIsBold ?? false,
+                    italic: item.editIsItalic ?? false,
+                    underline: item.editIsUnderline ?? false,
+                  });
+                  onEditTextFormatSeed?.({
+                    fontFamily: item.fontFamily,
+                    fontSize: Math.round(item.fontSize || 16),
+                    color: item.color || toolColors.text,
+                    bold: item.editIsBold ?? false,
+                    italic: item.editIsItalic ?? false,
+                    underline: item.editIsUnderline ?? false,
+                  });
                 }}
                 className="absolute z-10 border border-dashed border-emerald-400/50 hover:border-emerald-600 hover:bg-emerald-400/20 cursor-pointer rounded transition-all group"
                 style={{
@@ -1444,15 +1522,21 @@ export const PdfViewer: React.FC<PdfViewerProps> = ({
             item={activeEditingItem}
             pageIndex={currentPage}
             pageWidthPt={pageSize.pdfWidth}
-            rotation={rotation}
+            // Re-edits reuse the overlay's cover colour so the mask matches
+            // a tinted patch instead of flashing white.
+            maskColor={editingOverlay?.coverRect?.color || undefined}
+            saveRef={editorSaveRef}
+            cancelRef={editorCancelRef}
             isNew={activeEditingItem.id.startsWith('new-text-')}
             defaults={textDefaultsRef.current}
+            textFormat={textFormat}
+            onUpdateText={onUpdateText}
             onMoveStart={
               editingOverlay
-                ? (e) => beginOverlayMove(e, editingOverlay, activeEditingItem.id)
+                ? (e: React.MouseEvent) => beginOverlayMove(e, editingOverlay, activeEditingItem.id)
                 : undefined
             }
-            onSave={(overlay) => {
+            onSave={(overlay: EditedTextOverlay) => {
               textDefaultsRef.current = { fontFamily: overlay.fontFamily, fontSize: overlay.fontSize };
               const id = activeEditingItem.id;
               // Re-editing an existing overlay (id `reedit-<overlayId>`) updates
@@ -1468,6 +1552,9 @@ export const PdfViewer: React.FC<PdfViewerProps> = ({
                     fontFamily: overlay.fontFamily,
                     color: overlay.color,
                     isBold: overlay.isBold,
+                    isItalic: overlay.isItalic,
+                    isUnderline: overlay.isUnderline,
+                    align: overlay.align,
                     opacity: overlay.opacity,
                     pdfX: overlay.pdfX,
                     pdfWidth: overlay.pdfWidth,
@@ -1480,8 +1567,12 @@ export const PdfViewer: React.FC<PdfViewerProps> = ({
                 onAddTextOverlay(overlay);
               }
               setActiveEditingItem(null);
+              onCommit?.();
             }}
-            onCancel={() => setActiveEditingItem(null)}
+            onCancel={() => {
+              setActiveEditingItem(null);
+              onCancel?.();
+            }}
           />
         )}
 
