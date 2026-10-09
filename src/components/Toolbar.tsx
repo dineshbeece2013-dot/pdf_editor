@@ -99,8 +99,13 @@ const COLOR_PALETTE: string[] = [
  *   Row 1 (h-14) — brand, Upload / Sample, primary Export action.
  *   Row 2 (h-12) — a single horizontally scrollable tool strip that never
  *                  wraps; on narrow screens it swipes instead of growing.
+ *   Row 3        — text-formatting controls (font, size, B/I/U, alignment,
+ *                  colour, opacity, Done/Cancel) on their own full-width row
+ *                  whenever a text tool is active. The row wraps instead of
+ *                  overflowing, so editing text can never push the toolbar
+ *                  past the edge of the screen.
  * Dropdown menus render with `position: fixed` so the strip's overflow cannot
- * clip them, and there is no account/avatar menu anywhere in the UI.
+ * clip them.
  */
 export const Toolbar: React.FC<ToolbarProps> = ({
   currentTool,
@@ -186,7 +191,10 @@ export const Toolbar: React.FC<ToolbarProps> = ({
   const TextFormatControls = () => {
     if (!textFormat) return null;
     return (
-      <div data-textformat="" className="flex items-center gap-1.5 px-1.5 py-1 shrink-0">
+      <div
+        data-textformat=""
+        className="border-t border-neutral-100 bg-neutral-50/70 flex flex-wrap items-center gap-x-2 gap-y-1 px-3 sm:px-5 py-1.5"
+      >
         {/* Font family */}
         <select
           value={textFormat.fontFamily}
@@ -513,15 +521,14 @@ export const Toolbar: React.FC<ToolbarProps> = ({
             )}
           </button>
 
-          {/* Text formatting controls — active when using text tools or editing an overlay */}
-          {(currentTool === 'add-text' || currentTool === 'edit-text' || editingOverlayId != null) && (
-            <>
-              <Divider />
-              <TextFormatControls />
-            </>
-          )}
+          {/* Text formatting lives on its own row below the strip (row 3) so
+              adding controls here can never widen the toolbar past the screen. */}
         </div>
       </div>
+
+      {(currentTool === 'add-text' || currentTool === 'edit-text' || editingOverlayId != null) && (
+        <TextFormatControls />
+      )}
 
       {/* Dropdowns: position fixed so the scrolling strip can never clip them */}
       {openMenu === 'erase' && (
