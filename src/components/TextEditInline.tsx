@@ -84,13 +84,55 @@ export const TextEditInline: React.FC<TextEditInlineProps> = ({
   const sizePt = Number.isFinite(fontSize) && fontSize > 0 ? fontSize : 12;
   const fontSizePx = Math.max(4, sizePt * pxPerPt);
 
-  /** Contenteditable text (kept uncontrolled so React never moves the caret). */
-  const readText = () => (textRef.current?.innerText ?? '').replace(/\u00a0/g, ' ');
+  /** Block-level tags that imply a line break in the contenteditable. */
+  const BLOCK_TAGS = /^(DIV|P|LI|TR|TD|TH|H[1-6]|BLOCKQUOTE|PRE|SECTION|ARTICLE|UL|OL|TABLE)$/;
+
+  /**
+   * Contenteditable text, resolved WITHOUT depending on layout.
+   *
+   * `innerText` is rendering-aware, which is normally desirable — but on
+   * Android the soft keyboard resizes the visual viewport and scrolls the
+   * sheet container, so the node can be momentarily unpainted, and an
+   * unpainted node reports innerText === ''. That silently committed an empty
+   * overlay whose cover patch erased the line (the "text disappears after
+   * editing" bug). So we trust innerText only when it actually saw content,
+   * and otherwise fall back to a textContent walk that still recovers <br>
+   * and block boundaries as newlines.
+   */
+  const readText = () => {
+    const el = textRef.current;
+    if (!el) return '';
+    const rendered = (el.innerText ?? '').replace(/\u00a0/g, ' ');
+    if (rendered.trim()) return rendered.replace(/\r\n?/g, '\n');
+
+    const walk = (node: Node): string => {
+      if (node.nodeType === Node.TEXT_NODE) return node.nodeValue ?? '';
+      if (node.nodeName === 'BR') return '\n';
+      let out = '';
+      node.childNodes.forEach((child) => {
+        out += walk(child);
+      });
+      if (node.nodeType === Node.ELEMENT_NODE && BLOCK_TAGS.test((node as HTMLElement).tagName)) {
+        out += '\n';
+      }
+      return out;
+    };
+
+    return walk(el)
+      .replace(/\u00a0/g, ' ')
+      .replace(/\r\n?/g, '\n')
+      .replace(/\n+$/, '');
+  };
 
   const handleSave = () => {
     if (settledRef.current) return;
     const text = readText();
-    if (isNew && !text.trim()) {
+    // An empty commit is never useful and, for a first-time edit of detected
+    // text, actively destructive: coverOriginal paints a mask over the
+    // original glyphs, so saving '' leaves a blank hole where the text was.
+    // Treat "no visible content" as "no change" in every case; deliberate
+    // erasure has its own Eraser tool.
+    if (!text.trim()) {
       settledRef.current = true;
       onCancel();
       return;

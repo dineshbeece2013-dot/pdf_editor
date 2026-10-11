@@ -30,6 +30,7 @@ import {
   Palette,
   RotateCcw,
   RotateCw,
+  HelpCircle,
   Bold,
   Italic,
   Underline,
@@ -73,6 +74,8 @@ export interface ToolbarProps {
   onRotatePage: (delta: number) => void;
   /** Optional account/subscription control rendered at the top-right. */
   accountSlot?: React.ReactNode;
+  /** Opens the guided tour / help overlay. */
+  onOpenTour?: () => void;
   /** Text format state for add-text and edit-text tools. */
   textFormat?: TextFormat;
   onTextFormatChange?: (format: Partial<TextFormat>) => void;
@@ -139,6 +142,7 @@ export const Toolbar: React.FC<ToolbarProps> = ({
   pageRotation,
   onRotatePage,
   accountSlot,
+  onOpenTour,
   textFormat,
   onTextFormatChange,
   editingOverlayId,
@@ -351,6 +355,7 @@ export const Toolbar: React.FC<ToolbarProps> = ({
         <label
           className="ml-1 sm:ml-2 cursor-pointer flex items-center gap-1.5 px-2.5 sm:px-3 py-2 rounded-lg border border-neutral-200 text-neutral-700 hover:bg-neutral-100 text-xs font-semibold"
           title="Upload a PDF"
+          data-tour="upload"
         >
           <Upload className="w-4 h-4" />
           <span className="hidden sm:inline">Upload</span>
@@ -367,9 +372,21 @@ export const Toolbar: React.FC<ToolbarProps> = ({
 
         <div className="ml-auto flex items-center gap-2">
           {accountSlot}
+          {onOpenTour && (
+            <button
+              onClick={onOpenTour}
+              title="How to use the editor (guided tour)"
+              aria-label="Guided tour"
+              className="p-2 rounded-lg border border-neutral-200 text-neutral-500 hover:text-emerald-600 hover:bg-neutral-100"
+              data-tour="help"
+            >
+              <HelpCircle className="w-4 h-4" />
+            </button>
+          )}
           <button
             onClick={onExport}
             className="flex items-center gap-1.5 px-3.5 sm:px-4 py-2 bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg font-semibold text-xs shadow-sm"
+            data-tour="export"
           >
             <Download className="w-4 h-4" />
             <span>Export</span>
@@ -382,7 +399,7 @@ export const Toolbar: React.FC<ToolbarProps> = ({
         className="border-t border-neutral-100 overflow-x-auto overflow-y-hidden no-scrollbar"
         onScroll={() => openMenu && setOpenMenu(null)}
       >
-        <div className="flex items-center gap-1 w-max px-3 sm:px-5 h-12">
+        <div className="flex items-center gap-1 w-max px-3 sm:px-5 h-12" data-tour="tools">
           {/* History */}
           <button onClick={onUndo} disabled={!canUndo} title="Undo (Ctrl+Z)" className={ghostCls}>
             <Undo2 className="w-4 h-4" />
@@ -416,6 +433,7 @@ export const Toolbar: React.FC<ToolbarProps> = ({
             onClick={() => handleToolClick('add-text')}
             title="Add new text to the page"
             className={toolCls('add-text')}
+            data-tour="add-text"
           >
             <Type className="w-4 h-4" />
             <span>Add Text</span>

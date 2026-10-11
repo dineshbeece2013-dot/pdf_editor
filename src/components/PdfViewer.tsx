@@ -229,11 +229,18 @@ export const PdfViewer: React.FC<PdfViewerProps> = ({
     pdfY: number;
     w: number; // overlay size in PDF points (for clamping to the page)
     h: number;
-    started: boolean; // false until the pointer clears the click threshold
   } | null>(null);
   // Set when a drag ends over the box itself: the follow-up click must not
   // re-open the editor the user just dragged.
   const suppressOverlayClickRef = useRef(false);
+  // The move effect must subscribe its window listeners ONCE per drag and keep
+  // them attached until mouseup. It therefore reads the (frequently re-created)
+  // update callback through a ref and tracks the click-threshold in a ref too,
+  // so neither forces the effect to tear down / re-attach mid-drag — which is
+  // what used to drop the mouseup and leave the box stuck to the cursor.
+  const updateTextOverlayRef = useRef(onUpdateTextOverlay);
+  updateTextOverlayRef.current = onUpdateTextOverlay;
+  const moveStartedRef = useRef(false);
 
   // Leaving a tool closes any open inline editor and aborts half-finished
   // drag operations so stale state can't leak across tools.
@@ -561,27 +568,43 @@ export const PdfViewer: React.FC<PdfViewerProps> = ({
   // Text-box drag-to-move: same window-listener pattern as the resize handle.
   // pdfX/pdfY are clamped, so a box can be moved anywhere INSIDE the page but
   // never partially outside it. The open inline editor is updated in lockstep.
+  //
+  // The window listeners subscribe ONCE per drag: `overlayMove` only changes
+  // identity at drag-begin (null -> object) and drag-end (object -> null), and
+  // the click-threshold + the update callback are read through refs so neither
+  // re-triggers this effect. Re-subscribing on every mousemove (the old bug)
+  // tore down and re-attached the mouseup listener so often that a fast release
+  // was dropped, leaving the box glued to the cursor. Geometry below is frozen
+  // for the duration of a drag — any zoom/rotate/page change cancels it first.
   useEffect(() => {
     if (!overlayMove) return;
     const onMove = (e: MouseEvent) => {
+      // Bulletproof release: if a mouseup was ever missed (cursor left the
+      // window, a listener re-subscribe raced it), the very next move with no
+      // button held ends the drag. Without this the box stays glued to the
+      // cursor forever — the exact "stuck" symptom users reported.
+      if (e.buttons === 0) {
+        setOverlayMove(null);
+        return;
+      }
       // Screen deltas live in the rotated view — turn them back into page space.
       const { x: dx, y: dy } = screenToPageDelta(
         e.clientX - overlayMove.cx,
         e.clientY - overlayMove.cy,
         rotation,
       );
-      if (!overlayMove.started) {
+      if (!moveStartedRef.current) {
         // Below the threshold the gesture is still a click, not a drag.
         if (Math.hypot(dx, dy) < 3) return;
-        setOverlayMove((m) => (m ? { ...m, started: true } : m));
+        moveStartedRef.current = true;
         // Snapshot history once for the whole drag (same as resize).
-        onUpdateTextOverlay(overlayMove.id, {}, true);
+        updateTextOverlayRef.current(overlayMove.id, {}, true);
       }
       const maxW = Math.max(0, pageSize.pdfWidth - overlayMove.w);
       const maxH = Math.max(0, pageSize.pdfHeight - overlayMove.h);
       const pdfX = Math.min(maxW, Math.max(0, overlayMove.pdfX + dx * scaleX));
       const pdfY = Math.min(maxH, Math.max(0, overlayMove.pdfY - dy * scaleY));
-      onUpdateTextOverlay(overlayMove.id, { pdfX, pdfY });
+      updateTextOverlayRef.current(overlayMove.id, { pdfX, pdfY });
       if (overlayMove.itemId) {
         // The editor saves from item coordinates — keep its view and PDF
         // positions in step with the overlay or "Update Text" snaps it back.
@@ -592,11 +615,28 @@ export const PdfViewer: React.FC<PdfViewerProps> = ({
         );
       }
     };
-    const onUp = () => {
-      setOverlayMove((m) => {
-        if (m && m.started) suppressOverlayClickRef.current = true;
-        return null;
-      });
+    const onUp = (e: MouseEvent) => {
+      const { x: dx, y: dy } = screenToPageDelta(
+        e.clientX - overlayMove.cx,
+        e.clientY - overlayMove.cy,
+        rotation,
+      );
+      const maxW = Math.max(0, pageSize.pdfWidth - overlayMove.w);
+      const maxH = Math.max(0, pageSize.pdfHeight - overlayMove.h);
+      const pdfX = Math.min(maxW, Math.max(0, overlayMove.pdfX + dx * scaleX));
+      const pdfY = Math.min(maxH, Math.max(0, overlayMove.pdfY - dy * scaleY));
+      // Always commit the final position on release, whether or not the drag
+      // cleared the move threshold, so the box lands exactly under the cursor.
+      updateTextOverlayRef.current(overlayMove.id, { pdfX, pdfY });
+      if (overlayMove.itemId) {
+        const vx = pdfX * sX - offX;
+        const vy = fullH - (pdfY + overlayMove.h) * sY - offY;
+        setActiveEditingItem((prev) =>
+          prev && prev.id === overlayMove.itemId ? { ...prev, x: vx, y: vy, pdfX, pdfY } : prev,
+        );
+      }
+      if (moveStartedRef.current) suppressOverlayClickRef.current = true;
+      setOverlayMove(null);
     };
     window.addEventListener('mousemove', onMove);
     window.addEventListener('mouseup', onUp);
@@ -616,7 +656,6 @@ export const PdfViewer: React.FC<PdfViewerProps> = ({
     fullH,
     pageSize.pdfWidth,
     pageSize.pdfHeight,
-    onUpdateTextOverlay,
   ]);
 
   const handleMouseDown = (e: React.MouseEvent<HTMLDivElement>) => {
@@ -1070,6 +1109,7 @@ export const PdfViewer: React.FC<PdfViewerProps> = ({
     e.preventDefault();
     e.stopPropagation();
     suppressOverlayClickRef.current = false;
+    moveStartedRef.current = false;
     setOverlayMove({
       id: overlay.id,
       itemId,
@@ -1079,7 +1119,6 @@ export const PdfViewer: React.FC<PdfViewerProps> = ({
       pdfY: overlay.pdfY,
       w: overlay.pdfWidth,
       h: overlay.pdfHeight,
-      started: false,
     });
   };
 

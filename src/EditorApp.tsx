@@ -28,6 +28,7 @@ import { UpgradeModal } from './components/UpgradeModal';
 import { ChangePasswordModal } from './components/ChangePasswordModal';
 import { SeoSections } from './components/SeoSections';
 import { AdminDashboard } from './components/AdminDashboard';
+import { UserTour, hasCompletedTour, markTourCompleted } from './components/UserTour';
 
 /** The undoable document state: everything that changes the exported PDF. */
 type DocState = {
@@ -53,6 +54,7 @@ export function EditorApp() {
   const [showUpgrade, setShowUpgrade] = useState(false);
   const [showAdmin, setShowAdmin] = useState(false);
   const [showChangePassword, setShowChangePassword] = useState(false);
+  const [showTour, setShowTour] = useState(false);
   const [upgradeReason, setUpgradeReason] = useState<string | undefined>(undefined);
   // Once a free user starts an edit we grant the whole session so a multi-step
   // change (draw, move, resize, delete) counts as a single daily "edit".
@@ -80,6 +82,14 @@ export function EditorApp() {
     setScale(clampZoom(s));
   };
   const [currentTool, setTool] = useState<ToolType>('select');
+
+  // Auto-show the guided tour once for first-time visitors. Deferred a tick so
+  // the toolbar / canvas / footer are mounted and can be spotlighted.
+  useEffect(() => {
+    if (hasCompletedTour()) return;
+    const t = window.setTimeout(() => setShowTour(true), 700);
+    return () => window.clearTimeout(t);
+  }, []);
 
   const [textOverlays, setTextOverlays] = useState<EditedTextOverlay[]>([]);
   const [cropSettings, setCropSettings] = useState<Record<number, PageCropSetting>>({});
@@ -613,9 +623,10 @@ export function EditorApp() {
             onChangePassword={() => setShowChangePassword(true)}
           />
         }
+        onOpenTour={() => setShowTour(true)}
       />
 
-      <div className="flex-1 flex overflow-hidden relative">
+      <div className="flex-1 flex overflow-hidden relative" data-tour="canvas">
         <PdfViewer
           pdfBytes={pdfBytes}
           currentPage={currentPage}
@@ -678,7 +689,7 @@ export function EditorApp() {
       {/* Bottom status bar — page navigation and zoom stay reachable on every
           screen size (they used to live in the header and disappear on
           small viewports). */}
-      <footer className="shrink-0 h-10 border-t border-neutral-200 bg-white px-3 sm:px-5 flex items-center justify-between gap-3 select-none text-xs">
+      <footer className="shrink-0 h-10 border-t border-neutral-200 bg-white px-3 sm:px-5 flex items-center justify-between gap-3 select-none text-xs" data-tour="footer">
         <div className="shrink-0 flex items-center gap-0.5 bg-neutral-100 border border-neutral-200 rounded-lg p-0.5">
           <button
             onClick={() => setCurrentPage(Math.max(0, currentPage - 1))}
@@ -808,6 +819,14 @@ export function EditorApp() {
       <ChangePasswordModal
         isOpen={showChangePassword}
         onClose={() => setShowChangePassword(false)}
+      />
+
+      <UserTour
+        open={showTour}
+        onComplete={() => {
+          markTourCompleted();
+          setShowTour(false);
+        }}
       />
       </div>
 
