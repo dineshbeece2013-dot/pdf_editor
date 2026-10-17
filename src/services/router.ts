@@ -13,7 +13,7 @@ export const LOGIN_PATH = '/login';
  * payment and stores email addresses is expected to publish how it handles
  * data, what its terms are, how refunds work, and how to reach a human.
  */
-export const STATIC_PATHS = ['/privacy', '/terms', '/refund-policy', '/contact'] as const;
+export const STATIC_PATHS = ['/privacy', '/terms', '/refund-policy', '/contact', '/thank-you'] as const;
 
 /** Current URL path, normalised to always start with a single "/". */
 export function getPathname(): string {

@@ -26,3 +26,22 @@ export const ACCOUNTS_ENABLED = true;
  */
 export const AVAILABLE_PLANS = ['pro-daily', 'pro-monthly'] as const;
 export type AvailablePlan = (typeof AVAILABLE_PLANS)[number];
+
+/**
+ * GOOGLE ADS CONVERSION TRACKING.
+ *
+ * Paste the values Google Ads gives you when you create a conversion action
+ * (Goals → Conversions → New conversion action → Website → "Use Google Ads
+ * tag on your website" → Purchase or Sign-up):
+ *
+ *   - GOOGLE_ADS_CONVERSION_ID     — looks like "AW-123456789"
+ *   - GOOGLE_ADS_CONVERSION_LABEL  — the label shown next to it (e.g. "AbC-123_XYZ")
+ *
+ * While both are empty, no Google script is loaded and nothing is sent —
+ * the app behaves exactly as before. Once filled and redeployed, the
+ * /thank-you page fires the conversion, and only when the server confirms
+ * the account really is subscribed, so the count cannot be inflated by
+ * visits alone.
+ */
+export const GOOGLE_ADS_CONVERSION_ID = '';
+export const GOOGLE_ADS_CONVERSION_LABEL = '';

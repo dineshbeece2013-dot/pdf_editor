@@ -10,6 +10,7 @@ import {
 } from '../services/subscription';
 import { subscriptionApi, startRazorpayCheckout } from '../services/razorpay';
 import { ApiError, messageFor } from '../services/api';
+import { navigate } from '../services/router';
 
 /** Turn a failed checkout into something the user can act on. */
 function checkoutError(err: unknown): string {
@@ -47,7 +48,7 @@ const FEATURES = [
 export const UpgradeModal: React.FC<UpgradeModalProps> = ({ isOpen, onClose, reason, onSubscribed }) => {
   const { user, applyServerUser } = useAuth();
   const [selected, setSelected] = useState<string>('pro-monthly');
-  const [status, setStatus] = useState<'idle' | 'processing' | 'error' | 'success'>('idle');
+  const [status, setStatus] = useState<'idle' | 'processing' | 'error'>('idle');
   const [message, setMessage] = useState('');
   const [gatewayReady, setGatewayReady] = useState<boolean | null>(null);
   /**
@@ -106,10 +107,13 @@ export const UpgradeModal: React.FC<UpgradeModalProps> = ({ isOpen, onClose, rea
       // 3. The server verifies Razorpay's signature before granting access.
       const verified = await subscriptionApi.verify(result.payment);
       if (verified.user) applyServerUser(verified.user);
-
-      setStatus('success');
       setMessage('');
       onSubscribed?.(selected);
+
+      // 4. Land on the conversion page. The subscription is re-checked there
+      // by the server, and only a confirmed Pro account fires the Google Ads
+      // conversion event.
+      navigate('/thank-you', { replace: true });
     } catch (err) {
       setStatus('error');
       setMessage(checkoutError(err));
@@ -128,24 +132,7 @@ export const UpgradeModal: React.FC<UpgradeModalProps> = ({ isOpen, onClose, rea
 
   return (
     <Modal isOpen={isOpen} onClose={close} title="Upgrade to Pro" maxWidth="max-w-2xl">
-      {status === 'success' ? (
-        <div className="text-center py-6">
-          <div className="w-14 h-14 mx-auto rounded-full bg-emerald-100 flex items-center justify-center mb-4">
-            <Check className="w-7 h-7 text-emerald-600" />
-          </div>
-          <h3 className="text-lg font-bold text-neutral-800">You&apos;re on Pro!</h3>
-          <p className="text-sm text-neutral-500 mt-1">
-            {planLabel(selected)} is now active. Enjoy unlimited editing.
-          </p>
-          <button
-            onClick={close}
-            className="mt-5 px-5 py-2.5 bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg font-semibold text-sm"
-          >
-            Start editing
-          </button>
-        </div>
-      ) : (
-        <div className="space-y-5">
+      <div className="space-y-5">
           {reason && (
             <div className="flex items-start gap-2 px-3 py-2.5 rounded-lg bg-amber-50 border border-amber-200 text-amber-800 text-xs">
               <Sparkles className="w-4 h-4 shrink-0 mt-0.5" />
@@ -244,8 +231,7 @@ export const UpgradeModal: React.FC<UpgradeModalProps> = ({ isOpen, onClose, rea
               dashboard → Razorpay.
             </p>
           )}
-        </div>
-      )}
+      </div>
     </Modal>
   );
 };

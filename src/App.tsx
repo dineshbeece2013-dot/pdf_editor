@@ -7,6 +7,7 @@ import { PrivacyPage } from './pages/PrivacyPage';
 import { TermsPage } from './pages/TermsPage';
 import { RefundPolicyPage } from './pages/RefundPolicyPage';
 import { ContactPage } from './pages/ContactPage';
+import { ThankYouPage } from './pages/ThankYouPage';
 import { usePathname } from './hooks/usePathname';
 import { LOGIN_PATH, STATIC_PATHS, navigate } from './services/router';
 
@@ -34,6 +35,7 @@ function AppViews() {
   if (staticView === '/terms') return <TermsPage />;
   if (staticView === '/refund-policy') return <RefundPolicyPage />;
   if (staticView === '/contact') return <ContactPage />;
+  if (staticView === '/thank-you') return <ThankYouPage />;
 
   // Every other route — including unknown ones — is the editor.
   return <EditorApp />;
